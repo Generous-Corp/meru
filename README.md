@@ -1,8 +1,8 @@
 # Meru
 
 Meru is a granular texture instrument and effect for macOS, built on the
-[Pulp](https://github.com/Generous-Corp/pulp) SDK. It is inspired by Beads by
-Mutable Instruments and adapts its MIT-licensed firmware; Meru is an
+[Pulp](https://github.com/Generous-Corp/pulp) SDK. It is inspired by [Beads by
+Mutable Instruments](https://pichenettes.github.io/mutable-instruments-documentation/modules/beads/) and adapts its MIT-licensed firmware; Meru is an
 independent project, not affiliated with or endorsed by Mutable Instruments or
 Emilie Gillet.
 
