@@ -12,7 +12,7 @@ Emilie Gillet.
 ## Download
 
 Signed, notarized installers are on the
-[releases page](https://github.com/Generous-Corp/meru/releases). Each release
+[releases page](https://github.com/Generous-Corp/meru/releases/latest). Each release
 ships two packages:
 
 - **Meru** – the instrument and the FX companion (standalone apps, AU, VST3, CLAP).
