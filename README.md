@@ -6,6 +6,9 @@ Mutable Instruments and adapts its MIT-licensed firmware; Meru is an
 independent project, not affiliated with or endorsed by Mutable Instruments or
 Emilie Gillet.
 
+ <img width="400" height="741" alt="image" src="https://github.com/user-attachments/assets/ad9f8e2f-eeda-48df-b481-8bcd6eee75ac" />
+
+
 ## Download
 
 Signed, notarized installers are on the
