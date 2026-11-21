@@ -16,11 +16,17 @@ void accept_first_mouse_in_standalone() {
   const IMP yes = imp_implementationWithBlock(^BOOL(id, NSEvent *) { return YES; });
   for (Class cls : classes) {
     const char *name = class_getName(cls);
+#if defined(BEADSY_VELLUM_EDITOR)
+    if (std::strcmp(name, "VellumMirrorView") != 0 &&
+        std::strcmp(name, "VellumMirrorMetalView") != 0)
+      continue;
+#else
     // The window host compiles its view classes with a per-binary suffix
     // (PulpView_<target>, PulpMetalView_<target>); match the family.
     if (std::strncmp(name, "PulpView", 8) != 0 &&
         std::strncmp(name, "PulpMetalView", 13) != 0)
       continue;
+#endif
     // Replace on the class itself so a subclass keeps its own override and a
     // base-class implementation is not shared by accident.
     class_replaceMethod(cls, @selector(acceptsFirstMouse:), yes, "B@:@");

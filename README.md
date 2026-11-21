@@ -42,6 +42,11 @@ ctest --test-dir build
 
 Bundles land in `build/` (`Meru.app`, `AU/`, `VST3/`, `CLAP/`).
 
+The Vellum editor is a macOS opt-in for VST3, CLAP, AUv2, and Standalone.
+Add `-DBEADSY_VELLUM_EDITOR=ON` and set `CMAKE_PREFIX_PATH` to both SDK
+prefixes. The Pulp SDK needs its Vellum integration, and the Vellum SDK needs
+the `MirrorView_core` target. Run the same build and CTest commands above.
+
 ## License and credits
 
 Meru's own source is MIT licensed ([LICENSE](LICENSE)). The adapted Beads

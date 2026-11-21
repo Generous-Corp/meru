@@ -34,7 +34,16 @@ struct Proof {
   NSView *view = nil;
   int event_number = 1;
 
-  bool editor_live() const { return !editor_alive.expired(); }
+  bool editor_live() const {
+    if (editor_alive.expired())
+      return false;
+#if defined(BEADSY_VELLUM_EDITOR)
+    const auto *host = editor->plugin_view_host();
+    return host && host->is_attached();
+#else
+    return true;
+#endif
+  }
 
   void log(const std::string &json) const {
     std::fprintf(stderr, "[beadsy-ui-proof] %s\n", json.c_str());
@@ -92,14 +101,21 @@ struct Proof {
         geometry_json() + "," + state_json() + "}");
   }
 
-  // Editor-space point (top-left origin, 350 x 635 design units) to the
-  // event's window coordinates through the Pulp NSView, which is not flipped.
+  // Map the authored panel coordinates through the editor's native view.
   NSPoint to_window(float x, float y) const {
     const auto c = content();
-    const auto design = editor_live() ? editor->bounds() : pulp::view::Rect{0, 0, 350, 551};
+#if defined(BEADSY_VELLUM_EDITOR)
+    float sx = 1.0f, sy = 1.0f, tx = 0.0f, ty = 0.0f;
+    if (auto *host = editor->plugin_view_host())
+      host->design_viewport_transform(sx, sy, tx, ty);
+    const auto y_in_view = y * sy + ty;
+    const NSPoint local{x * sx + tx, view.isFlipped ? y_in_view : c.height - y_in_view};
+#else
+    const auto design = editor_live() ? editor->bounds() : editor_view::Rect{0, 0, 350, 551};
     const float dw = design.width > 1.0f ? design.width : 350.0f;
     const float dh = design.height > 1.0f ? design.height : 551.0f;
     const NSPoint local{x * (c.width / dw), c.height - y * (c.height / dh)};
+#endif
     return [view convertPoint:local toView:nil];
   }
 
@@ -183,6 +199,7 @@ void after(double seconds, std::function<void()> fn) {
                  dispatch_get_main_queue(), ^{ fn(); });
 }
 
+#if !defined(BEADSY_VELLUM_EDITOR)
 bool is_pulp_view(NSView *view) {
   NSString *name = NSStringFromClass([view class]);
   for (NSString *prefix in @[ @"PulpMetalView", @"PulpView", @"PulpGpuPluginView",
@@ -209,6 +226,8 @@ NSView *find_pulp_view() {
   }
   return best;
 }
+
+#endif
 
 using Steps = std::vector<std::function<void(Proof &)>>;
 
@@ -539,13 +558,18 @@ Steps steps_for(const std::string &step) {
 
 void start(const std::shared_ptr<Proof> &proof, int attempts_left) {
   if (!proof->editor_live()) return;
+#if defined(BEADSY_VELLUM_EDITOR)
+  auto *host = proof->editor->plugin_view_host();
+  proof->view = host ? (__bridge NSView *)host->native_handle() : nil;
+#else
   proof->view = find_pulp_view();
+#endif
   if (!proof->view || !proof->view.window) {
     if (attempts_left > 0) {
       after(0.3, [proof, attempts_left] { start(proof, attempts_left - 1); });
       return;
     }
-    proof->log("{\"step\":\"" + proof->step + "\",\"error\":\"no pulp view\"}");
+    proof->log("{\"step\":\"" + proof->step + "\",\"error\":\"no editor view\"}");
     return;
   }
   NSString *bundle = [NSBundle bundleForClass:[proof->editor_alive.expired() ? nil : proof->view class]].bundlePath;
