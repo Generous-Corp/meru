@@ -47,6 +47,13 @@ Add `-DBEADSY_VELLUM_EDITOR=ON` and set `CMAKE_PREFIX_PATH` to both SDK
 prefixes. The Pulp SDK needs its Vellum integration, and the Vellum SDK needs
 the `MirrorView_core` target. Run the same build and CTest commands above.
 
+To run the macOS CI build and tests locally on Apple silicon, use Xcode 26
+and pass an extracted Pulp SDK to the same script the workflow uses.
+
+```sh
+bash scripts/build_and_test_macos.sh /path/to/pulp-sdk build/ci
+```
+
 ## License and credits
 
 Meru's own source is MIT licensed ([LICENSE](LICENSE)). The adapted Beads
