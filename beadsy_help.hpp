@@ -5,8 +5,8 @@
 // the software stand-in for a patch cable. Both are Lab-only until the Lab
 // configuration becomes the product.
 
-#include <pulp/view/view.hpp>
 
+#include "beadsy_editor_api.hpp"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -123,7 +123,7 @@ inline const std::vector<HelpSection> &help_sections() {
 
 /// Full-root overlay: a card with the help text, wheel-scrolled, dismissed
 /// with Escape, the close mark, or a press outside the card.
-class HelpPanel final : public pulp::view::View {
+class HelpPanel final : public editor_view::View {
 public:
   HelpPanel() {
     set_id("beadsy-help-panel");
@@ -132,16 +132,16 @@ public:
   }
   std::function<void()> on_close;
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(20, 22, 26, 150));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(20, 22, 26, 150));
     canvas.fill_rect(0, 0, b.width, b.height);
     const auto card = card_rect();
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(38, 38, 44));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(38, 38, 44));
     canvas.fill_rounded_rect(card.x, card.y, card.width, card.height, 8.0f);
     // Close mark.
     const auto close = close_rect();
-    canvas.set_stroke_color(pulp::canvas::Color::rgba8(200, 203, 208));
+    canvas.set_stroke_color(editor_canvas::Color::rgba8(200, 203, 208));
     canvas.set_line_width(1.6f);
     canvas.stroke_line(close.x + 5, close.y + 5, close.x + close.width - 5,
                        close.y + close.height - 5);
@@ -161,21 +161,21 @@ public:
     for (const auto &section : help_sections()) {
       if (section.rule_before) {
         y += 6.0f;
-        canvas.set_stroke_color(pulp::canvas::Color::rgba8(90, 94, 100));
+        canvas.set_stroke_color(editor_canvas::Color::rgba8(90, 94, 100));
         canvas.set_line_width(1.0f);
         if (y > top - 2.0f && y < bottom + 2.0f)
           canvas.stroke_line(left, y, left + width, y);
         y += 10.0f;
       }
       canvas.set_font_full("Roboto Mono", title_size, 700, 0, 0.0f);
-      canvas.set_text_align(pulp::canvas::TextAlign::left);
-      canvas.set_fill_color(pulp::canvas::Color::rgba8(236, 238, 232));
+      canvas.set_text_align(editor_canvas::TextAlign::left);
+      canvas.set_fill_color(editor_canvas::Color::rgba8(236, 238, 232));
       y += title_size;
       if (y > top - title_size && y < bottom + title_size)
         canvas.fill_text(section.title, left, y);
       y += 8.0f;
       canvas.set_font_full("Roboto Mono", body_size, 400, 0, 0.0f);
-      canvas.set_fill_color(pulp::canvas::Color::rgba8(200, 203, 208));
+      canvas.set_fill_color(editor_canvas::Color::rgba8(200, 203, 208));
       for (const auto &line : wrap(canvas, section.body, width)) {
         y += body_line;
         if (y > top - body_line && y < bottom + body_line)
@@ -187,7 +187,7 @@ public:
     canvas.restore();
   }
 
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
     if (event.is_wheel) {
       scroll_by(event.scroll_delta_y);
       return;
@@ -207,18 +207,18 @@ public:
     if (!inside || on_close)
       dismiss();
   }
-  bool on_key_event(const pulp::view::KeyEvent &event) override {
+  bool on_key_event(const editor_view::KeyEvent &event) override {
     if (!event.is_down)
       return false;
-    if (event.key == pulp::view::KeyCode::escape) {
+    if (event.key == editor_view::KeyCode::escape) {
       dismiss();
       return true;
     }
-    if (event.key == pulp::view::KeyCode::down) {
+    if (event.key == editor_view::KeyCode::down) {
       scroll_by(40.0f);
       return true;
     }
-    if (event.key == pulp::view::KeyCode::up) {
+    if (event.key == editor_view::KeyCode::up) {
       scroll_by(-40.0f);
       return true;
     }
@@ -233,12 +233,12 @@ public:
   }
 
   /// Centre of the close mark in panel coordinates, for proofs.
-  pulp::view::Point close_mark_centre() const {
+  editor_view::Point close_mark_centre() const {
     const auto c = close_rect();
     return {c.x + c.width * 0.5f, c.y + c.height * 0.5f};
   }
 
-  static std::vector<std::string> wrap(pulp::canvas::Canvas &canvas,
+  static std::vector<std::string> wrap(editor_canvas::Canvas &canvas,
                                        const std::string &text, float width) {
     std::vector<std::string> lines;
     std::istringstream words(text);
@@ -267,12 +267,12 @@ public:
   }
 
 private:
-  pulp::view::Rect card_rect() const {
+  editor_view::Rect card_rect() const {
     const auto b = local_bounds();
     const float margin = std::min(18.0f, b.width * 0.05f);
     return {margin, margin * 2.0f, b.width - 2 * margin, b.height - margin * 3.0f};
   }
-  pulp::view::Rect close_rect() const {
+  editor_view::Rect close_rect() const {
     const auto card = card_rect();
     return {card.x + card.width - 30.0f, card.y + 4.0f, 26.0f, 26.0f};
   }
@@ -288,29 +288,29 @@ private:
 };
 
 /// The "?" at the left of the band.
-class HelpButton final : public pulp::view::View {
+class HelpButton final : public editor_view::View {
 public:
   HelpButton() {
     set_id("beadsy-help-button");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_access_label("About Meru and help");
-    set_cursor(pulp::view::View::CursorStyle::pointer);
+    set_cursor(editor_view::View::CursorStyle::pointer);
     set_focusable(true);
   }
   std::function<void()> on_press;
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
     const float r = std::min(b.width, b.height) * 0.5f - 1.0f;
     const float cx = b.width * 0.5f, cy = b.height * 0.5f;
-    canvas.set_stroke_color(pulp::canvas::Color::rgba8(120, 124, 128));
+    canvas.set_stroke_color(editor_canvas::Color::rgba8(120, 124, 128));
     canvas.set_line_width(std::max(1.0f, r * 0.12f));
     canvas.stroke_circle(cx, cy, r);
     canvas.set_font_full("Roboto Mono", r * 1.35f, 700, 0, 0.0f);
-    canvas.set_text_align(pulp::canvas::TextAlign::center);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(120, 124, 128));
+    canvas.set_text_align(editor_canvas::TextAlign::center);
+    canvas.set_fill_color(editor_canvas::Color::rgba8(120, 124, 128));
     canvas.fill_text("?", cx, cy + r * 0.5f);
   }
-  void on_mouse_down(pulp::view::Point) override {
+  void on_mouse_down(editor_view::Point) override {
     if (on_press)
       on_press();
   }
@@ -319,39 +319,39 @@ public:
 
 /// The Source chip: a pill that names the current source and opens the
 /// Source menu on any press, primary or secondary.
-class SourceChip final : public pulp::view::View {
+class SourceChip final : public editor_view::View {
 public:
   SourceChip() {
     set_id("beadsy-source-chip");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_access_label("Source; click to change");
-    set_cursor(pulp::view::View::CursorStyle::pointer);
+    set_cursor(editor_view::View::CursorStyle::pointer);
     set_focusable(true);
   }
   std::function<std::string()> label_provider;
-  std::function<void(pulp::view::Point)> on_press;
-  void paint(pulp::canvas::Canvas &canvas) override {
+  std::function<void(editor_view::Point)> on_press;
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
     const float radius = b.height * 0.5f;
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(255, 255, 255, 180));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(255, 255, 255, 180));
     canvas.fill_rounded_rect(0.5f, 0.5f, b.width - 1.0f, b.height - 1.0f, radius);
-    canvas.set_stroke_color(pulp::canvas::Color::rgba8(150, 154, 158));
+    canvas.set_stroke_color(editor_canvas::Color::rgba8(150, 154, 158));
     canvas.set_line_width(1.0f);
     canvas.stroke_rounded_rect(0.5f, 0.5f, b.width - 1.0f, b.height - 1.0f, radius);
     const std::string text = label_provider ? label_provider() : "SOURCE";
     canvas.set_font_full("Roboto Mono", b.height * 0.46f, 700, 0, b.height * 0.06f);
-    canvas.set_text_align(pulp::canvas::TextAlign::center);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(80, 84, 88));
+    canvas.set_text_align(editor_canvas::TextAlign::center);
+    canvas.set_fill_color(editor_canvas::Color::rgba8(80, 84, 88));
     canvas.fill_text(text, b.width * 0.5f - b.height * 0.25f, b.height * 0.68f);
     // Disclosure mark at the right end.
     const float mx = b.width - b.height * 0.75f, my = b.height * 0.5f;
     const float s = b.height * 0.14f;
-    canvas.set_stroke_color(pulp::canvas::Color::rgba8(80, 84, 88));
+    canvas.set_stroke_color(editor_canvas::Color::rgba8(80, 84, 88));
     canvas.set_line_width(1.2f);
     canvas.stroke_line(mx - s, my - s * 0.5f, mx, my + s * 0.5f);
     canvas.stroke_line(mx, my + s * 0.5f, mx + s, my - s * 0.5f);
   }
-  void on_mouse_down(pulp::view::Point position) override {
+  void on_mouse_down(editor_view::Point position) override {
     if (on_press)
       on_press(position);
   }

@@ -2,6 +2,14 @@
 
 #if !defined(PULP_HEADLESS)
 
+#include "beadsy_editor_api.hpp"
+#if defined(BEADSY_VELLUM_EDITOR)
+#include <pulp/vellum/editor_env.hpp>
+#include <vellum/view/plugin_view_host.hpp>
+#if defined(BEADSY_UI_PROOF)
+#include "beadsy_ui_proof.hpp"
+#endif
+#endif
 #include "beadsy.hpp"
 #include "beadsy_panel_svg.hpp"
 #if __has_include("beadsy_panel_png.hpp")
@@ -9,9 +17,6 @@
 #define BEADSY_HAS_PANEL_PNG 1
 #endif
 
-#include <pulp/canvas/canvas.hpp>
-#include <pulp/canvas/svg.hpp>
-#include <pulp/view/context_menu.hpp>
 #include <pulp/runtime/log.hpp>
 #include <cstdlib>
 #include <chrono>
@@ -20,13 +25,8 @@
 #if defined(BEADSY_LAB_VARIANT)
 #include "beadsy_help.hpp"
 #endif
-#include <pulp/view/parameter_binding.hpp>
-#include <pulp/view/ui_components.hpp>
-#include <pulp/view/view.hpp>
-#include <pulp/view/widgets.hpp>
 #if __has_include(<pulp/host/audio_route_catalog.hpp>)
 #include <pulp/host/audio_route_catalog.hpp>
-#include <pulp/view/ui_components.hpp>
 #define BEADSY_HAS_AUDIO_ROUTE_CATALOG 1
 #endif
 
@@ -58,7 +58,7 @@ inline bool host_diagnostics_enabled() {
 
 namespace detail {
 
-inline pulp::view::View *root_view(pulp::view::View *view) {
+inline editor_view::View *root_view(editor_view::View *view) {
   if (!view)
     return nullptr;
   while (view->parent())
@@ -66,8 +66,8 @@ inline pulp::view::View *root_view(pulp::view::View *view) {
   return view;
 }
 
-inline pulp::view::Point local_to_root(pulp::view::View *view,
-                                       pulp::view::Point point) {
+inline editor_view::Point local_to_root(editor_view::View *view,
+                                       editor_view::Point point) {
   for (auto *current = view; current; current = current->parent()) {
     const auto bounds = current->bounds();
     point.x += bounds.x;
@@ -76,7 +76,7 @@ inline pulp::view::Point local_to_root(pulp::view::View *view,
   return point;
 }
 
-class PanelKnob final : public pulp::view::Knob {
+class PanelKnob final : public editor_view::Knob {
 public:
   // The converted panel artwork is consistently about 1.8 pt left of the
   // DXF-to-view affine fit. Keep that calibration in the editor layout rather
@@ -120,7 +120,7 @@ public:
   PanelKnob(std::string caption, float diameter)
       : caption_(std::move(caption)), diameter_(diameter) {
     set_show_label(false);
-    set_render_style(pulp::view::WidgetRenderStyle::standard);
+    set_render_style(editor_view::WidgetRenderStyle::standard);
     set_id("beadsy-" + caption_);
   }
 
@@ -130,23 +130,23 @@ public:
   void set_modulation_phase(std::function<float()> phase) {
     modulation_phase_ = std::move(phase);
   }
-  void set_accent(std::optional<pulp::canvas::Color> accent) {
+  void set_accent(std::optional<editor_canvas::Color> accent) {
     accent_ = accent;
   }
 
   // Some AUv2 hosts deliver the secondary click to the embedded control but
   // do not run Pulp's root context dispatcher. Handle that case at the knob
   // boundary while preserving the normal Knob gesture path for left clicks.
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
-    if (event.button == pulp::view::MouseButton::right && event.isPress()) {
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
+    if (event.button == editor_view::MouseButton::right && event.isPress()) {
       if (on_context_menu)
         on_context_menu(event.position);
       return;
     }
-    pulp::view::Knob::on_mouse_event(event);
+    editor_view::Knob::on_mouse_event(event);
   }
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
     const float cx = b.width * 0.5f;
     const bool utility_knob = is_utility_diameter(diameter_);
@@ -159,8 +159,8 @@ public:
                              ? utility_paint_radius_for_bounds(b.width, b.height)
                              : paint_radius_for_bounds(b.width, b.height);
     const float angle =
-        pulp::view::Knob::start_angle +
-        (pulp::view::Knob::end_angle - pulp::view::Knob::start_angle) *
+        editor_view::Knob::start_angle +
+        (editor_view::Knob::end_angle - editor_view::Knob::start_angle) *
             modulated_display_value();
     // `radius` is in rendered pixels and therefore changes with editor scale.
     // The source-mapped diameter is the stable distinction between the seven
@@ -181,7 +181,7 @@ public:
     // The seven utility controls are plain black pots with a white pointer.
     // They do not inherit the large Beads pot's pale cap, grooves, or halo.
     if (utility_knob) {
-      canvas.set_fill_color(pulp::canvas::Color::rgba8(14, 14, 14));
+      canvas.set_fill_color(editor_canvas::Color::rgba8(14, 14, 14));
       canvas.fill_circle(cx, cy, radius * 1.04f);
       const float ux = std::cos(angle);
       const float uy = std::sin(angle);
@@ -190,13 +190,13 @@ public:
       const float inner = radius * 0.26f;
       const float outer = radius * 0.89f;
       const float half_width = radius * 0.13f;
-      const pulp::canvas::Canvas::Point2D pointer[] = {
+      const editor_canvas::Canvas::Point2D pointer[] = {
           {cx + ux * inner + px * half_width, cy + uy * inner + py * half_width},
           {cx + ux * inner - px * half_width, cy + uy * inner - py * half_width},
           {cx + ux * outer - px * half_width, cy + uy * outer - py * half_width},
           {cx + ux * outer + px * half_width, cy + uy * outer + py * half_width},
       };
-      canvas.set_fill_color(pulp::canvas::Color::rgba8(242, 240, 227));
+      canvas.set_fill_color(editor_canvas::Color::rgba8(242, 240, 227));
       canvas.fill_path(pointer, 4);
       return;
     }
@@ -205,16 +205,16 @@ public:
     // annulus around a pale inset cap.  Keep this entirely procedural:
     // the reference photo is provenance only and is never embedded.
     const float outer_radius = radius * kOuterRadiusFraction;
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(11, 11, 11));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(11, 11, 11));
     canvas.fill_circle(cx, cy, outer_radius);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(24, 24, 24));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(24, 24, 24));
     canvas.fill_circle(cx - radius * 0.04f, cy - radius * 0.05f,
                        radius * 1.01f);
 
     // Recessed radial grooves break up the annulus without relying on
     // image assets. Their spacing is stable at every control size.
-    canvas.set_stroke_color(pulp::canvas::Color::rgba8(8, 8, 8));
-    canvas.set_line_cap(pulp::canvas::LineCap::butt);
+    canvas.set_stroke_color(editor_canvas::Color::rgba8(8, 8, 8));
+    canvas.set_line_cap(editor_canvas::LineCap::butt);
     canvas.set_line_width(std::max(1.0f, radius * 0.045f));
     constexpr int kGrooveCount = 28;
     constexpr float kTwoPi = 6.28318530717958647692f;
@@ -230,7 +230,7 @@ public:
     // The measured reference cap occupies approximately 53–61% of the
     // outer diameter.  A 0.62-radius inset lands at the middle of that
     // range after the outer shadow is included.
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(232, 230, 218));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(232, 230, 218));
     canvas.fill_circle(cx - radius * 0.055f, cy - radius * 0.07f,
                        radius * kCapRadiusFraction);
 
@@ -245,7 +245,7 @@ public:
     const float outer = radius * 0.97f;
     const float inner_half_width = radius * kPointerInnerHalfWidthFraction;
     const float outer_half_width = radius * kPointerOuterHalfWidthFraction;
-    const pulp::canvas::Canvas::Point2D pointer[] = {
+    const editor_canvas::Canvas::Point2D pointer[] = {
         {cx + ux * inner + px * inner_half_width,
          cy + uy * inner + py * inner_half_width},
         {cx + ux * inner - px * inner_half_width,
@@ -255,7 +255,7 @@ public:
         {cx + ux * outer + px * outer_half_width,
          cy + uy * outer + py * outer_half_width},
     };
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(244, 242, 230));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(244, 242, 230));
     canvas.fill_path(pointer, 4);
 
     // Modulation remains visible through the animated value/pointer. Do not
@@ -266,7 +266,7 @@ public:
 private:
   std::string caption_;
   float diameter_ = 0.0f;
-  std::optional<pulp::canvas::Color> accent_;
+  std::optional<editor_canvas::Color> accent_;
   std::function<bool()> modulation_active_;
   std::function<float()> modulation_phase_;
 };
@@ -279,7 +279,7 @@ private:
 /// reports press and release with the held time; the editor turns those into
 /// the three-state Seed Mode parameter. Keeping this as a native view makes
 /// automation/state changes repaint the LED as well as the button.
-class SeedModeControl final : public pulp::view::View {
+class SeedModeControl final : public editor_view::View {
 public:
   /// A press shorter than this is a tap and toggles the latch; a longer hold
   /// plays grains while held and restores the latch state on release.
@@ -287,7 +287,7 @@ public:
 
   SeedModeControl() {
     set_id("beadsy-seed-mode");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_access_label("Seed Mode");
     set_focusable(true);
   }
@@ -318,7 +318,7 @@ public:
   void set_on_release(std::function<void(double)> callback) {
     on_release_ = std::move(callback);
   }
-  void set_on_context_menu(std::function<void(pulp::view::Point)> callback) {
+  void set_on_context_menu(std::function<void(editor_view::Point)> callback) {
     on_context_menu_ = std::move(callback);
   }
   /// Tests inject a clock so a four-second hold needs no four seconds.
@@ -327,15 +327,15 @@ public:
   /// Seconds the button has been held so far; 0 when it is up.
   double held_seconds() const { return held_ ? now() - press_time_ : 0.0; }
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     // The editor compositor paints the full-size toggle face. Keep this
     // native view interactive for clicks and context menus, but do not paint
     // a second small circle over the face.
     (void)canvas;
   }
 
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
-    if (event.button == pulp::view::MouseButton::right && event.isPress()) {
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
+    if (event.button == editor_view::MouseButton::right && event.isPress()) {
       if (on_context_menu_)
         on_context_menu_(event.position);
       return;
@@ -344,13 +344,13 @@ public:
     // channel by every Pulp host; handling it here as well fired each toggle
     // twice per click (Freeze cancelled itself, the cyclers skipped a state).
   }
-  void on_mouse_down(pulp::view::Point) override {
+  void on_mouse_down(editor_view::Point) override {
     held_ = true;
     press_time_ = now();
     if (on_press_)
       on_press_();
   }
-  void on_mouse_up(pulp::view::Point) override {
+  void on_mouse_up(editor_view::Point) override {
     if (!held_)
       return;
     held_ = false;
@@ -374,18 +374,18 @@ private:
   std::function<float()> display_value_;
   std::function<void()> on_press_;
   std::function<void(double)> on_release_;
-  std::function<void(pulp::view::Point)> on_context_menu_;
+  std::function<void(editor_view::Point)> on_context_menu_;
 };
 
 /// A native, source-backed FREEZE button.  The physical panel uses a large
 /// top button; keeping this control procedural preserves the same silhouette
 /// at every editor scale while the StateStore remains the automation
 /// authority.
-class FreezeControl final : public pulp::view::View {
+class FreezeControl final : public editor_view::View {
 public:
   FreezeControl() {
     set_id("beadsy-freeze");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_access_label("Freeze (off); click to toggle");
     set_focusable(true);
   }
@@ -407,18 +407,18 @@ public:
   void set_on_press(std::function<void()> callback) {
     on_press_ = std::move(callback);
   }
-  void set_on_context_menu(std::function<void(pulp::view::Point)> callback) {
+  void set_on_context_menu(std::function<void(editor_view::Point)> callback) {
     on_context_menu_ = std::move(callback);
   }
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     // The editor compositor paints the full-size toggle face. This native
     // view remains the hit target and context-menu owner only.
     (void)canvas;
   }
 
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
-    if (event.button == pulp::view::MouseButton::right && event.isPress()) {
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
+    if (event.button == editor_view::MouseButton::right && event.isPress()) {
       if (on_context_menu_)
         on_context_menu_(event.position);
       return;
@@ -427,7 +427,7 @@ public:
     // channel by every Pulp host; handling it here as well fired each toggle
     // twice per click (Freeze cancelled itself, the cyclers skipped a state).
   }
-  void on_mouse_down(pulp::view::Point) override {
+  void on_mouse_down(editor_view::Point) override {
     if (on_press_)
       on_press_();
   }
@@ -437,20 +437,20 @@ private:
   bool pressed_ = false;
   std::function<float()> display_value_;
   std::function<void()> on_press_;
-  std::function<void(pulp::view::Point)> on_context_menu_;
+  std::function<void(editor_view::Point)> on_context_menu_;
 };
 
 /// The physical lower-left control is a momentary black push button, not a
 /// seventh miniature pot. Keep it separate from PanelKnob so it has no
 /// parameter pointer, grooves, pale cap, or automation gesture.
-class PushButtonControl final : public pulp::view::View {
+class PushButtonControl final : public editor_view::View {
 public:
   PushButtonControl() {
     set_id("beadsy-push-button");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_access_label("Quality: 16-bit; click to cycle");
     set_focusable(true);
-    set_cursor(pulp::view::View::CursorStyle::pointer);
+    set_cursor(editor_view::View::CursorStyle::pointer);
   }
   void set_quality(int quality) {
     quality_ = std::clamp(quality, 0, 3);
@@ -470,14 +470,14 @@ public:
   void set_on_press(std::function<void()> callback) {
     on_press_ = std::move(callback);
   }
-  void set_on_context_menu(std::function<void(pulp::view::Point)> callback) {
+  void set_on_context_menu(std::function<void(editor_view::Point)> callback) {
     on_context_menu_ = std::move(callback);
   }
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     (void)canvas; // parent compositor paints the single full-size face
   }
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
-    if (event.button == pulp::view::MouseButton::right && event.isPress()) {
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
+    if (event.button == editor_view::MouseButton::right && event.isPress()) {
       if (on_context_menu_)
         on_context_menu_(event.position);
       return;
@@ -486,7 +486,7 @@ public:
     // channel by every Pulp host; handling it here as well fired each toggle
     // twice per click (Freeze cancelled itself, the cyclers skipped a state).
   }
-  void on_mouse_down(pulp::view::Point) override {
+  void on_mouse_down(editor_view::Point) override {
     if (on_press_)
       on_press_();
   }
@@ -496,35 +496,35 @@ private:
   int quality_ = 3;
   std::function<float()> display_value_;
   std::function<void()> on_press_;
-  std::function<void(pulp::view::Point)> on_context_menu_;
+  std::function<void(editor_view::Point)> on_context_menu_;
 };
 
 /// The reclaimed lower-left M control selects the assignable modulation
 /// destination. It remains a real button even though the physical CV jack is
 /// absent in software; the state is exposed for automation/UI feedback while
 /// the DSP mapping remains deliberately product-local.
-class AssignButtonControl final : public pulp::view::View {
+class AssignButtonControl final : public editor_view::View {
 public:
   AssignButtonControl() {
     set_id("beadsy-assign-button");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_access_label("CV Assign (Feedback); click to cycle");
     set_focusable(true);
-    set_cursor(pulp::view::View::CursorStyle::pointer);
+    set_cursor(editor_view::View::CursorStyle::pointer);
   }
   int destination() const { return destination_; }
-  void set_on_context_menu(std::function<void(pulp::view::Point)> callback) {
+  void set_on_context_menu(std::function<void(editor_view::Point)> callback) {
     on_context_menu_ = std::move(callback);
   }
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
-    if (event.button == pulp::view::MouseButton::right && event.isPress()) {
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
+    if (event.button == editor_view::MouseButton::right && event.isPress()) {
       if (on_context_menu_)
         on_context_menu_(event.position);
       return;
     }
     // Left presses arrive on the legacy `on_mouse_down` channel below.
   }
-  void on_mouse_down(pulp::view::Point) override {
+  void on_mouse_down(editor_view::Point) override {
     destination_ = (destination_ + 1) % 3;
     static constexpr const char *names[] = {"Feedback", "Dry/Wet", "Reverb"};
     set_access_label(std::string("CV Assign (") + names[destination_] +
@@ -532,18 +532,18 @@ public:
     request_repaint();
   }
   bool wants_mouse_input() const override { return true; }
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     (void)canvas; // parent compositor paints the single full-size face
   }
 private:
   int destination_ = 0;
-  std::function<void(pulp::view::Point)> on_context_menu_;
+  std::function<void(editor_view::Point)> on_context_menu_;
 };
 
 /// Covers the legacy panel LED beside the quality station. Quality is exposed
 /// by the single native circular button; leaving the artwork LED visible
 /// would create a second, ambiguous state indicator.
-class CenterIndicators final : public pulp::view::View {
+class CenterIndicators final : public editor_view::View {
 public:
   static constexpr float kLedXFraction = 0.23f;
   static constexpr float kButtonXFraction = 0.77f;
@@ -552,22 +552,22 @@ public:
 
   CenterIndicators() {
     set_id("beadsy-center-indicators");
-    set_pointer_events(pulp::view::View::PointerEvents::none);
-    set_access_role(pulp::view::View::AccessRole::image);
+    set_pointer_events(editor_view::View::PointerEvents::none);
+    set_access_role(editor_view::View::AccessRole::image);
     set_access_label("Status indicators");
   }
   void set_quality(int quality) {
     quality_ = std::clamp(quality, 0, 3);
     request_repaint();
   }
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
     const float unit = b.width / 12.0f;
     // The reviewed panel artwork contains a small red LED at the left side
     // of this station. Paint over that authored marker with exactly the
     // faceplate substrate the editor paints beneath the artwork; any other
     // tone reads as a pale disc beside the quality button.
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(248, 248, 246));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(248, 248, 246));
     canvas.fill_circle(b.width * 0.23f, b.height * 0.5f,
                       std::max(2.0f, 2.25f * unit));
   }
@@ -579,7 +579,7 @@ private:
 /// Selects the software source path. Hardware Beads uses physical input
 /// jacks; the plugin exposes the same choice explicitly for a stereo Main In
 /// bus while retaining the internal wavetable fallback.
-class ModeControl final : public pulp::view::ComboBox {
+class ModeControl final : public editor_view::ComboBox {
 public:
   ModeControl() {
     set_id("beadsy-source-mode");
@@ -612,32 +612,32 @@ public:
     on_mode_change_ = std::move(callback);
   }
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
-    const auto body = mode_ == 0   ? pulp::canvas::Color::rgba8(38, 40, 43)
-                      : mode_ == 1 ? pulp::canvas::Color::rgba8(28, 93, 101)
-                                   : pulp::canvas::Color::rgba8(74, 71, 103);
+    const auto body = mode_ == 0   ? editor_canvas::Color::rgba8(38, 40, 43)
+                      : mode_ == 1 ? editor_canvas::Color::rgba8(28, 93, 101)
+                                   : editor_canvas::Color::rgba8(74, 71, 103);
     canvas.set_fill_color(body);
     canvas.fill_rounded_rect(0.5f, 0.5f, std::max(1.0f, b.width - 1.0f),
                              std::max(1.0f, b.height - 1.0f),
                              std::max(2.0f, b.height * 0.18f));
-    canvas.set_stroke_color(pulp::canvas::Color::rgba8(210, 207, 193));
+    canvas.set_stroke_color(editor_canvas::Color::rgba8(210, 207, 193));
     canvas.set_line_width(0.8f);
     canvas.stroke_rounded_rect(0.5f, 0.5f, std::max(1.0f, b.width - 1.0f),
                                std::max(1.0f, b.height - 1.0f),
                                std::max(2.0f, b.height * 0.18f));
     canvas.set_font_full("Roboto Mono", std::max(3.0f, b.height * 0.40f), 700,
                          0, 0.35f);
-    canvas.set_text_align(pulp::canvas::TextAlign::center);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(241, 239, 229));
+    canvas.set_text_align(editor_canvas::TextAlign::center);
+    canvas.set_fill_color(editor_canvas::Color::rgba8(241, 239, 229));
     canvas.fill_text(mode_ == 0   ? "MIDI"
                      : mode_ == 1 ? "MAIN IN"
                                   : "SIDECHAIN",
                      b.width * 0.5f, b.height * 0.63f);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(241, 239, 229));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(241, 239, 229));
     const float arrow_x = b.width - std::max(2.0f, b.height * 0.34f);
     const float arrow_y = b.height * 0.50f;
-    const pulp::canvas::Canvas::Point2D arrow[] = {
+    const editor_canvas::Canvas::Point2D arrow[] = {
         {arrow_x - b.height * 0.16f, arrow_y - b.height * 0.10f},
         {arrow_x + b.height * 0.16f, arrow_y - b.height * 0.10f},
         {arrow_x, arrow_y + b.height * 0.14f},
@@ -670,7 +670,7 @@ private:
 /// leave the picker unattached while retaining ownership of its routing menu.
 /// Catalog callbacks only mark the view dirty; the host/editor control thread
 /// calls refresh_routes() (or refresh_if_needed()) to touch view state.
-class AudioRoutePicker final : public pulp::view::ComboBox {
+class AudioRoutePicker final : public editor_view::ComboBox {
 public:
   explicit AudioRoutePicker(std::size_t bus_index = 0,
                             std::size_t channel_index = 0)
@@ -920,11 +920,11 @@ public:
 
 #endif
 
-class InputBusControl final : public pulp::view::View {
+class InputBusControl final : public editor_view::View {
 public:
   InputBusControl() {
     set_id("beadsy-input-bus");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_focusable(true);
     set_source(0);
   }
@@ -938,32 +938,32 @@ public:
   void set_on_press(std::function<void()> callback) {
     on_press_ = std::move(callback);
   }
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(31, 35, 39));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(31, 35, 39));
     canvas.fill_rounded_rect(0.5f, 0.5f, std::max(1.0f, b.width - 1.0f),
                              std::max(1.0f, b.height - 1.0f), b.height * 0.18f);
-    canvas.set_stroke_color(pulp::canvas::Color::rgba8(112, 124, 130));
+    canvas.set_stroke_color(editor_canvas::Color::rgba8(112, 124, 130));
     canvas.set_line_width(0.8f);
     canvas.stroke_rounded_rect(0.5f, 0.5f, std::max(1.0f, b.width - 1.0f),
                                std::max(1.0f, b.height - 1.0f),
                                b.height * 0.18f);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(232, 236, 229));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(232, 236, 229));
     canvas.set_font_full("Roboto Mono", std::max(3.0f, b.height * 0.28f), 700,
                          0, 0.25f);
-    canvas.set_text_align(pulp::canvas::TextAlign::center);
+    canvas.set_text_align(editor_canvas::TextAlign::center);
     canvas.fill_text(source_ == 0 ? "BUS  MAIN IN" : "BUS  SIDECHAIN",
                      b.width * 0.5f, b.height * 0.63f);
   }
-  void on_mouse_down(pulp::view::Point) override {
+  void on_mouse_down(editor_view::Point) override {
     if (on_press_)
       on_press_();
   }
-  bool on_key_event(const pulp::view::KeyEvent &event) override {
+  bool on_key_event(const editor_view::KeyEvent &event) override {
     if (!event.is_down)
       return false;
-    if (event.key == pulp::view::KeyCode::enter ||
-        event.key == pulp::view::KeyCode::space) {
+    if (event.key == editor_view::KeyCode::enter ||
+        event.key == editor_view::KeyCode::space) {
       if (on_press_)
         on_press_();
       return true;
@@ -980,7 +980,7 @@ private:
 /// Small editor-owned resize affordance. Hosts still decide whether the
 /// resize request is accepted; the grip makes that capability discoverable in
 /// standalone windows and hosts that expose the Pulp resize callback.
-class ResizeGrip final : public pulp::view::View {
+class ResizeGrip final : public editor_view::View {
 public:
   /// Grip footprint at a given panel unit (px per authored mm). Shared by
   /// the editor's layout and its painted lower divider so the divider's
@@ -989,19 +989,23 @@ public:
     return std::max(8.0f, 7.0f * unit);
   }
 
+#if defined(BEADSY_VELLUM_EDITOR)
+  explicit ResizeGrip(pulp::vellum::EditorEnv &env) : env_(env) {
+#else
   explicit ResizeGrip(Beadsy &processor) : processor_(processor) {
+#endif
     set_id("beadsy-resize-grip");
-    set_access_role(pulp::view::View::AccessRole::button);
+    set_access_role(editor_view::View::AccessRole::button);
     set_access_label("Resize editor");
-    set_cursor(pulp::view::View::CursorStyle::bottom_right_resize);
+    set_cursor(editor_view::View::CursorStyle::bottom_right_resize);
   }
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
     const bool active = is_hovered() || dragging_;
     const auto color = active
-                           ? pulp::canvas::Color::rgba8(14, 14, 14, 255)
-                           : pulp::canvas::Color::rgba8(86, 96, 102, 210);
+                           ? editor_canvas::Color::rgba8(14, 14, 14, 255)
+                           : editor_canvas::Color::rgba8(86, 96, 102, 210);
     canvas.set_stroke_color(color);
     canvas.set_line_width(std::max(1.0f, b.width * (active ? 0.12f : 0.08f)));
     for (int i = 1; i <= 3; ++i) {
@@ -1011,12 +1015,12 @@ public:
     }
   }
 
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
-    const bool press = event.phase == pulp::view::MousePhase::press ||
-                       (event.phase == pulp::view::MousePhase::automatic &&
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
+    const bool press = event.phase == editor_view::MousePhase::press ||
+                       (event.phase == editor_view::MousePhase::automatic &&
                         event.is_down && !dragging_);
-    const bool release = event.phase == pulp::view::MousePhase::release ||
-                         (event.phase == pulp::view::MousePhase::automatic &&
+    const bool release = event.phase == editor_view::MousePhase::release ||
+                         (event.phase == editor_view::MousePhase::automatic &&
                           !event.is_down && dragging_);
     if (press) {
       dragging_ = true;
@@ -1024,17 +1028,19 @@ public:
       start_pointer_ = event.window_position;
       accumulated_dx_ = 0.0f;
       accumulated_dy_ = 0.0f;
-      if (auto *root = detail::root_view(this)) {
+      if (auto *root = detail::root_view(this))
         start_width_ = root->bounds().width;
-        start_height_ = root->bounds().height;
-      }
+#if defined(BEADSY_VELLUM_EDITOR)
+      if (auto *host = plugin_view_host())
+        start_width_ = static_cast<float>(host->get_size().width);
+#endif
       set_pointer_capture(pointer_id_);
       request_repaint();
       return;
     }
     if (dragging_ && !release &&
-        (event.phase == pulp::view::MousePhase::drag ||
-         (event.phase == pulp::view::MousePhase::automatic && event.is_down) ||
+        (event.phase == editor_view::MousePhase::drag ||
+         (event.phase == editor_view::MousePhase::automatic && event.is_down) ||
          event.has_movement_delta)) {
       // Some AUv2 hosts report movement as per-event deltas while others
       // report an absolute window position. Accumulate the former so each
@@ -1053,14 +1059,19 @@ public:
       const float delta = std::abs(accumulated_dx_) >= std::abs(accumulated_dy_)
                               ? accumulated_dx_
                               : accumulated_dy_ * static_cast<float>(kPanelAspectRatio);
-      const auto hints = processor_.view_size();
+      const auto hints = Beadsy::panel_view_size();
       const float width = std::clamp(
           start_width_ + delta, static_cast<float>(hints.min_width),
           static_cast<float>(hints.max_width));
       const float height = width / static_cast<float>(kPanelAspectRatio);
+#if defined(BEADSY_VELLUM_EDITOR)
+      env_.request_resize({static_cast<uint32_t>(std::lround(width)),
+                           static_cast<uint32_t>(std::lround(height))});
+#else
       processor_.request_editor_resize(
           static_cast<uint32_t>(std::lround(width)),
           static_cast<uint32_t>(std::lround(height)));
+#endif
       return;
     }
     if (dragging_ && release) {
@@ -1076,12 +1087,15 @@ public:
   void on_mouse_leave() override { request_repaint(); }
 
 private:
+#if defined(BEADSY_VELLUM_EDITOR)
+  pulp::vellum::EditorEnv &env_;
+#else
   Beadsy &processor_;
+#endif
   bool dragging_ = false;
   int pointer_id_ = 0;
-  pulp::view::Point start_pointer_{};
+  editor_view::Point start_pointer_{};
   float start_width_ = 350.0f;
-  float start_height_ = 635.0f;
   float accumulated_dx_ = 0.0f;
   float accumulated_dy_ = 0.0f;
 };
@@ -1095,13 +1109,19 @@ inline double seed_latch_breath(long long milliseconds) {
   return ((triangle * 3 >> 2) + 64) / 255.0;
 }
 
-class BeadsyEditor final : public pulp::view::View {
+class BeadsyEditor final : public editor_view::View {
 public:
+#if defined(BEADSY_VELLUM_EDITOR)
+  BeadsyEditor(pulp::vellum::EditorEnv &env, pulp::format::Processor &processor)
+      : processor_(static_cast<Beadsy &>(processor)), store_(processor.state()),
+        env_(env),
+#else
   BeadsyEditor(Beadsy &processor, pulp::state::StateStore &store)
       : processor_(processor), store_(store),
-        panel_(pulp::canvas::SvgImage::from_string(kBeadsyPanelSvg)) {
+#endif
+        panel_(editor_canvas::SvgImage::from_string(kBeadsyPanelSvg)) {
     set_id("beadsy-editor");
-    set_background_color(pulp::canvas::Color::rgba8(22, 21, 19));
+    set_background_color(editor_canvas::Color::rgba8(22, 21, 19));
     build_controls();
     layout_controls();
     // Internal LFOs publish a played value for bound controls. Keep the
@@ -1109,6 +1129,31 @@ public:
     // that value while audio or host automation is running.
     set_continuous_repaint(true);
   }
+
+#if defined(BEADSY_VELLUM_EDITOR)
+  pulp::format::ViewSize editor_view_size() const {
+    auto size = Beadsy::panel_view_size();
+    size.design_width = size.preferred_width;
+    size.design_height = size.preferred_height;
+    return size;
+  }
+
+  void editor_opened() {
+#if defined(BEADSY_UI_PROOF)
+    install_ui_proof(store_, *this);
+#endif
+  }
+
+  void editor_idle() {
+    advance_display_modulation();
+    for (const auto &control : controls_) {
+      if (const auto shown = store_.displayed_modulation(control.id))
+        control.knob->set_modulated_value(*shown);
+      else
+        control.knob->clear_modulated_value();
+    }
+  }
+#endif
 
   void on_resized() override { layout_controls(); }
   /// The host lays the window out with one Yoga pass over the whole tree.
@@ -1118,7 +1163,7 @@ public:
   /// editor was constructed with (0 x 0, so the 201 x 364 fallback).
   bool owns_child_layout() const override { return true; }
   void layout_children() override {
-    pulp::view::View::layout_children();
+    editor_view::View::layout_children();
 #if defined(BEADSY_HAS_AUDIO_ROUTE_CATALOG)
     if (route_picker_left_ || route_picker_right_) {
       if (route_picker_left_)
@@ -1153,11 +1198,11 @@ public:
     layout_controls();
   }
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     const auto b = local_bounds();
-    processor_.advance_display_modulation(
-        std::chrono::duration<double>(
-            std::chrono::steady_clock::now().time_since_epoch()).count());
+#if !defined(BEADSY_VELLUM_EDITOR)
+    advance_display_modulation();
+#endif
     if (detail::host_diagnostics_enabled() && (++diag_paint_count_ % 60) == 1) {
       const auto shown = store_.displayed_modulation(kFreeze);
       pulp::runtime::log_info(
@@ -1186,7 +1231,7 @@ public:
     // so its vector flourishes remain composable. Paint the substrate before
     // rendering the retained scene; otherwise the source artwork is shown
     // over the editor's dark fallback background and its fine ink disappears.
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(248, 248, 246, 255));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(248, 248, 246, 255));
     canvas.fill_rect(0.0f, 0.0f, b.width, b.height);
     bool drew_panel = false;
 #if defined(BEADSY_HAS_PANEL_PNG)
@@ -1202,7 +1247,7 @@ public:
       drew_panel = true;
     }
     if (!drew_panel) {
-      canvas.set_fill_color(pulp::canvas::Color::rgba8(22, 21, 19));
+      canvas.set_fill_color(editor_canvas::Color::rgba8(22, 21, 19));
       canvas.fill_rect(0, 0, b.width, b.height);
     }
     // Keep the faceplate's cyan, orange, and magenta utility strips and their
@@ -1219,7 +1264,7 @@ public:
     // The imported panel is composited over the same warm faceplate substrate
     // painted above.  Using pure white here leaves visible rectangular seams
     // wherever a removed construction line or jack is masked.
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(248, 248, 246, 255));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(248, 248, 246, 255));
     const float panel_sx = content_width / 70.8f;
     const float panel_sy = content_height / 128.5f;
     const auto panel_rect = [&](float x, float y, float w, float h) {
@@ -1258,9 +1303,9 @@ public:
     // Replace the partly grey, partly white lower border as one continuous
     // faceplate stroke after masking the old output bay.
     panel_rect(3.5f, 9.0f, 65.3f, 1.1f);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(189, 188, 188));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(189, 188, 188));
     panel_rect(3.5f, 9.25f, 65.3f, 0.60f);
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(248, 248, 246, 255));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(248, 248, 246, 255));
     // FREEZE and SEED were labels for removed hardware jack controls. Keep
     // the stereo IN L / IN R legends above the software route pickers, while
     // removing only these two obsolete legends from the reclaimed row.
@@ -1286,7 +1331,7 @@ public:
     const float divider_height = 0.9f * grip_unit;
     const float divider_y = b.height - ResizeGrip::size_for_unit(grip_unit) -
                             0.6f * grip_unit - divider_height;
-    canvas.set_fill_color(pulp::canvas::Color::rgba8(189, 188, 188));
+    canvas.set_fill_color(editor_canvas::Color::rgba8(189, 188, 188));
     canvas.fill_rect(content_x + 3.5f * panel_sx, divider_y, 65.3f * panel_sx,
                      divider_height);
 #endif
@@ -1304,27 +1349,27 @@ public:
     // the imported faceplate. Repaint the stateful circular controls in the
     // same layer so their visible state cannot regress by host format.
     const auto paint_button = [&](float cx_mm, float cy_mm, float radius_mm,
-                                  pulp::canvas::Color fill) {
+                                  editor_canvas::Color fill) {
       const float scale = std::min(panel_sx, panel_sy);
       const float cx = content_x + cx_mm * panel_sx;
       const float cy = content_y + (128.5f - cy_mm) * panel_sy;
       canvas.set_fill_color(fill);
       canvas.fill_circle(cx, cy, radius_mm * scale);
-      canvas.set_stroke_color(pulp::canvas::Color::rgba8(42, 43, 42));
+      canvas.set_stroke_color(editor_canvas::Color::rgba8(42, 43, 42));
       canvas.set_line_width(std::max(0.8f, radius_mm * scale * 0.10f));
       canvas.stroke_circle(cx, cy, radius_mm * scale);
     };
     // The faces show the value the DSP plays: an internal LFO assigned to a
     // button publishes its modulated value, and the painted state must
     // follow it exactly as the knobs do, not the stored base value.
-    const auto off = pulp::canvas::Color::rgba8(239, 238, 228);
-    const auto on = pulp::canvas::Color::rgba8(205, 214, 103);
+    const auto off = editor_canvas::Color::rgba8(239, 238, 228);
+    const auto on = editor_canvas::Color::rgba8(205, 214, 103);
     paint_button(8.7f, 110.5f, 3.4f,
                  effective_display_value(kFreeze) >= 0.5f ? on : off);
     {
       // Latched: the hardware LED fades between a quarter and full
       // brightness on a 2 s triangle; held: steady; off: unlit.
-      const auto seed_off = pulp::canvas::Color::rgba8(226, 225, 217);
+      const auto seed_off = editor_canvas::Color::rgba8(226, 225, 217);
       const long seed_state = std::lround(effective_display_value(kSeedMode));
       auto face = seed_state == 0 ? seed_off : on;
       if (seed_state >= 2) {
@@ -1335,7 +1380,7 @@ public:
         const auto mix = [&](float a, float b) {
           return static_cast<uint8_t>(std::lround(a + (b - a) * t));
         };
-        face = pulp::canvas::Color::rgba8(mix(226.0f, 205.0f), mix(225.0f, 214.0f),
+        face = editor_canvas::Color::rgba8(mix(226.0f, 205.0f), mix(225.0f, 214.0f),
                                          mix(217.0f, 103.0f));
       }
       paint_button(62.0f, 110.5f, 3.2f, face);
@@ -1343,7 +1388,7 @@ public:
     // Cover the authored quality LED before drawing the single quality button.
     const auto mask_faceplate = [&](float cx_mm, float cy_mm, float radius_mm) {
       const float scale = std::min(panel_sx, panel_sy);
-      canvas.set_fill_color(pulp::canvas::Color::rgba8(248, 248, 246));
+      canvas.set_fill_color(editor_canvas::Color::rgba8(248, 248, 246));
       canvas.fill_circle(content_x + cx_mm * panel_sx,
                          content_y + (128.5f - cy_mm) * panel_sy,
                          radius_mm * scale);
@@ -1356,19 +1401,19 @@ public:
     mask_faceplate(3.55f, 55.5f, 2.4f);
     // Preserve the authored dotted guide runs. The old construction-dot mask
     // cut their first segment and produced the visible gaps below the trims.
-    static constexpr pulp::canvas::Color quality_colors[] = {
-        pulp::canvas::Color::rgba8(48, 174, 210),
-        pulp::canvas::Color::rgba8(205, 214, 103),
-        pulp::canvas::Color::rgba8(234, 166, 27),
-        pulp::canvas::Color::rgba8(211, 59, 97),
+    static constexpr editor_canvas::Color quality_colors[] = {
+        editor_canvas::Color::rgba8(48, 174, 210),
+        editor_canvas::Color::rgba8(205, 214, 103),
+        editor_canvas::Color::rgba8(234, 166, 27),
+        editor_canvas::Color::rgba8(211, 59, 97),
     };
     paint_button(35.7f, 83.24f, 3.5f,
                  quality_colors[std::clamp(static_cast<int>(std::lround(
                      effective_display_value(kQuality))), 0, 3)]);
-    static constexpr pulp::canvas::Color assign_colors[] = {
-        pulp::canvas::Color::rgba8(24, 165, 175),
-        pulp::canvas::Color::rgba8(234, 166, 27),
-        pulp::canvas::Color::rgba8(211, 59, 97),
+    static constexpr editor_canvas::Color assign_colors[] = {
+        editor_canvas::Color::rgba8(24, 165, 175),
+        editor_canvas::Color::rgba8(234, 166, 27),
+        editor_canvas::Color::rgba8(211, 59, 97),
     };
     paint_button(7.1f, 51.7f, 3.5f,
                  assign_colors[assign_button_ ? assign_button_->destination() : 0]);
@@ -1443,16 +1488,16 @@ public:
 
 #if defined(BEADSY_LAB_VARIANT)
   struct PanelMenuSession {
-    pulp::view::ContextMenu *menu = nullptr;
+    editor_view::ContextMenu *menu = nullptr;
   };
 
   /// Rows of the panel menu. Source is three radio-style rows (the hardware
   /// has one patch cable; the software has one selected input), then the
   /// software VCA. Rebuilt after every change so the checked row is always
   /// the live value.
-  std::vector<pulp::view::ContextMenu::Item>
+  std::vector<editor_view::ContextMenu::Item>
   panel_menu_items(const std::shared_ptr<PanelMenuSession> &session) {
-    using Item = pulp::view::ContextMenu::Item;
+    using Item = editor_view::ContextMenu::Item;
     const auto alive = import_binding_lifetime_token();
     const auto refresh = [alive, this, session] {
       if (alive.expired() || !session->menu)
@@ -1463,7 +1508,7 @@ public:
     std::vector<Item> items;
     items.push_back(Item::make_header("Source"));
     const int current = std::clamp(
-        static_cast<int>(std::lround(store_.get_value(kMode))), 0,
+        static_cast<int>(std::lround(parameter_value(kMode))), 0,
         kAvailableSourceModeMax);
     const char *names[] = {"Internal synth", "Main In", "Side Chain"};
     for (int mode = 0; mode <= kAvailableSourceModeMax; ++mode) {
@@ -1475,9 +1520,9 @@ public:
             // A radio: selecting a row makes it the source; unchecking the
             // current row keeps it, there is always exactly one source.
             if (item.checked) {
-              store_.begin_gesture(kMode);
-              store_.set_value(kMode, static_cast<float>(mode));
-              store_.end_gesture(kMode);
+              begin_parameter(kMode);
+              set_parameter(kMode, static_cast<float>(mode));
+              end_parameter(kMode);
             }
             refresh();
           }));
@@ -1490,31 +1535,31 @@ public:
     const bool synth_source = current == 0;
     auto gate = Item::make_toggle(
         45, synth_source ? "Note Gate" : "Note Gate (internal synth)",
-        store_.get_value(kNoteGate) >= 0.5f, [alive, this](const Item &item) {
+        parameter_value(kNoteGate) >= 0.5f, [alive, this](const Item &item) {
           if (alive.expired())
             return;
-          store_.begin_gesture(kNoteGate);
-          store_.set_value(kNoteGate, item.checked ? 1.0f : 0.0f);
-          store_.end_gesture(kNoteGate);
+          begin_parameter(kNoteGate);
+          set_parameter(kNoteGate, item.checked ? 1.0f : 0.0f);
+          end_parameter(kNoteGate);
         });
     gate.enabled = synth_source;
     items.push_back(std::move(gate));
     const auto *release_info = store_.info(kNoteRelease);
     auto release = Item::make_slider(
         46, "Release",
-        release_info ? release_info->range.normalize(store_.get_value(kNoteRelease)) : 0.0f,
+        release_info ? release_info->range.normalize(parameter_value(kNoteRelease)) : 0.0f,
         0.01f, [alive, this, refresh](const Item &item) {
           if (alive.expired())
             return;
           if (const auto *info = store_.info(kNoteRelease)) {
-            store_.begin_gesture(kNoteRelease);
-            store_.set_value(kNoteRelease, info->range.denormalize(item.normalized_value));
-            store_.end_gesture(kNoteRelease);
+            begin_parameter(kNoteRelease);
+            set_parameter(kNoteRelease, info->range.denormalize(item.normalized_value));
+            end_parameter(kNoteRelease);
           }
         });
     {
       std::ostringstream text;
-      text << static_cast<int>(std::lround(store_.get_value(kNoteRelease))) << " ms";
+      text << static_cast<int>(std::lround(parameter_value(kNoteRelease))) << " ms";
       release.value_label = text.str();
     }
     release.enabled = synth_source;
@@ -1524,7 +1569,7 @@ public:
 
   /// Lab builds: the panel's own menu (secondary press on bare faceplate).
   /// Public so tests can drive it.
-  pulp::view::ContextMenu *show_panel_menu(pulp::view::Point position) {
+  editor_view::ContextMenu *show_panel_menu(editor_view::Point position) {
     auto *root = detail::root_view(this);
     if (!root)
       return nullptr;
@@ -1549,7 +1594,7 @@ public:
     return names[std::clamp(mode, 0, 2)];
   }
   int source_mode() const {
-    return std::clamp(static_cast<int>(std::lround(store_.get_value(kMode))), 0,
+    return std::clamp(static_cast<int>(std::lround(parameter_value(kMode))), 0,
                       kAvailableSourceModeMax);
   }
   SourceChip *source_chip() const { return source_chip_; }
@@ -1568,7 +1613,7 @@ public:
     auto panel = std::make_unique<HelpPanel>();
     auto *raw = panel.get();
     const auto rb = root->local_bounds();
-    raw->set_position(pulp::view::View::Position::absolute);
+    raw->set_position(editor_view::View::Position::absolute);
     raw->set_left(0.0f);
     raw->set_top(0.0f);
     raw->set_bounds({0.0f, 0.0f, rb.width, rb.height});
@@ -1592,12 +1637,12 @@ public:
 
   /// The modulation menu currently open from this editor, if any. Proof and
   /// host tests use it to drive the real rows; it is never owned here.
-  pulp::view::ContextMenu *modulation_menu() const {
+  editor_view::ContextMenu *modulation_menu() const {
     auto *root = detail::root_view(const_cast<BeadsyEditor *>(this));
     if (!root)
       return nullptr;
     for (std::size_t i = root->child_count(); i > 0; --i)
-      if (auto *menu = dynamic_cast<pulp::view::ContextMenu *>(root->child_at(i - 1)))
+      if (auto *menu = dynamic_cast<editor_view::ContextMenu *>(root->child_at(i - 1)))
         return menu;
     return nullptr;
   }
@@ -1605,9 +1650,9 @@ public:
   /// Show the same menu used by a knob's real secondary-click handler.
   /// This is public so host/editor characterization tests can exercise the
   /// complete menu lifecycle without synthesizing platform pointer events.
-  pulp::view::ContextMenu *
+  editor_view::ContextMenu *
   show_modulation_context_menu(pulp::state::ParamID id,
-                               pulp::view::Point position) {
+                               editor_view::Point position) {
     auto *root = detail::root_view(this);
     if (!root)
       return nullptr;
@@ -1626,9 +1671,9 @@ public:
             processor_.clear_lfo(session->target, 0);
             processor_.clear_lfo(session->target, 1);
             if (const auto *info = store_.info(session->target)) {
-              store_.begin_gesture(session->target);
-              store_.set_value(session->target, info->range.default_value);
-              store_.end_gesture(session->target);
+              begin_parameter(session->target);
+              set_parameter(session->target, info->range.default_value);
+              end_parameter(session->target);
             }
           }
           clear_modulation_context();
@@ -1654,21 +1699,21 @@ private:
     pulp::state::ParamID target = kTime;
     std::size_t lane = 0;
     bool all_targets = false;
-    pulp::view::ContextMenu *menu = nullptr;
+    editor_view::ContextMenu *menu = nullptr;
   };
 
   /// The overlay gets the flat progressive-disclosure rows; a native menu
   /// gets one "LFO n" submenu per lane holding that lane's rows, since a
   /// platform menu has submenus instead of rows that rebuild in place.
-  std::vector<pulp::view::ContextMenu::Item> modulation_items_for_presentation(
+  std::vector<editor_view::ContextMenu::Item> modulation_items_for_presentation(
       const std::shared_ptr<ModulationMenuSession> &session) {
-    using Item = pulp::view::ContextMenu::Item;
-#if !__has_include(<pulp/view/native_context_menu.hpp>)
+    using Item = editor_view::ContextMenu::Item;
+#if !defined(BEADSY_HAS_NATIVE_MENUS)
     // An SDK without the native presentation only has the overlay rows.
     return modulation_menu_items(session);
 #else
-    if (pulp::view::ContextMenu::resolve_presentation(std::nullopt) !=
-        pulp::view::ContextMenu::Presentation::native)
+    if (editor_view::ContextMenu::resolve_presentation(std::nullopt) !=
+        editor_view::ContextMenu::Presentation::native)
       return modulation_menu_items(session);
     std::vector<Item> items;
     const auto flat_for = [&](std::size_t lane) {
@@ -1710,9 +1755,9 @@ private:
 #endif
   }
 
-  std::vector<pulp::view::ContextMenu::Item> modulation_menu_items(
+  std::vector<editor_view::ContextMenu::Item> modulation_menu_items(
       const std::shared_ptr<ModulationMenuSession> &session) {
-    using Item = pulp::view::ContextMenu::Item;
+    using Item = editor_view::ContextMenu::Item;
     const auto alive = import_binding_lifetime_token();
     const auto refresh = [alive, this, session] {
       if (alive.expired() || !session->menu)
@@ -1857,7 +1902,7 @@ private:
     float r;
   };
 
-  static void paint_scaffold_labels(pulp::canvas::Canvas &canvas, float width,
+  static void paint_scaffold_labels(editor_canvas::Canvas &canvas, float width,
                                     float height) {
     // SvgImage intentionally keeps the fallback asset free of runtime
     // font dependencies. Paint its labels through the native canvas so
@@ -1868,9 +1913,9 @@ private:
     const float scale = std::min(sx, sy);
     const auto label = [&canvas, sx, sy,
                         scale](const char *value, float x, float y, float size,
-                               pulp::canvas::Color color,
-                               pulp::canvas::TextAlign align =
-                                   pulp::canvas::TextAlign::center,
+                               editor_canvas::Color color,
+                               editor_canvas::TextAlign align =
+                                   editor_canvas::TextAlign::center,
                                int weight = 500) {
       canvas.set_font_full("Roboto Mono", size * scale, weight, 0,
                            size > 4.0f ? 0.8f * scale : 0.55f * scale);
@@ -1878,48 +1923,48 @@ private:
       canvas.set_fill_color(color);
       canvas.fill_text(value, x * sx, y * sy);
     };
-    const auto ink = pulp::canvas::Color::rgba8(32, 35, 38);
-    const auto accent = pulp::canvas::Color::rgba8(51, 75, 85);
-    const auto muted = pulp::canvas::Color::rgba8(101, 112, 120);
+    const auto ink = editor_canvas::Color::rgba8(32, 35, 38);
+    const auto accent = editor_canvas::Color::rgba8(51, 75, 85);
+    const auto muted = editor_canvas::Color::rgba8(101, 112, 120);
     label("BEADSY", 100.3465f, 17.0f, 8.0f, ink,
-          pulp::canvas::TextAlign::center, 700);
+          editor_canvas::TextAlign::center, 700);
     label("MIDI GRAIN SYNTH", 100.3465f, 25.0f, 3.1f, accent);
     label("GRAIN", 100.3465f, 46.0f, 3.2f, accent,
-          pulp::canvas::TextAlign::center, 700);
+          editor_canvas::TextAlign::center, 700);
     // Top controls retain the original panel's visual hierarchy while
     // remaining Beadsy's independently authored labels and typography.
-    label("FREEZE", 24.5f, 63.0f, 5.0f, ink, pulp::canvas::TextAlign::center,
+    label("FREEZE", 24.5f, 63.0f, 5.0f, ink, editor_canvas::TextAlign::center,
           700);
-    label("SEED", 176.2f, 63.0f, 5.0f, ink, pulp::canvas::TextAlign::center,
+    label("SEED", 176.2f, 63.0f, 5.0f, ink, editor_canvas::TextAlign::center,
           700);
-    label("DENSITY", 100.1f, 100.0f, 6.0f, ink, pulp::canvas::TextAlign::center,
+    label("DENSITY", 100.1f, 100.0f, 6.0f, ink, editor_canvas::TextAlign::center,
           700);
-    label("TIME", 32.6f, 142.0f, 6.0f, ink, pulp::canvas::TextAlign::center,
+    label("TIME", 32.6f, 142.0f, 6.0f, ink, editor_canvas::TextAlign::center,
           700);
-    label("PITCH", 164.8f, 142.0f, 6.0f, ink, pulp::canvas::TextAlign::center,
+    label("PITCH", 164.8f, 142.0f, 6.0f, ink, editor_canvas::TextAlign::center,
           700);
-    label("SIZE", 68.5f, 201.0f, 6.0f, ink, pulp::canvas::TextAlign::center,
+    label("SIZE", 68.5f, 201.0f, 6.0f, ink, editor_canvas::TextAlign::center,
           700);
-    label("SHAPE", 131.7f, 201.0f, 6.0f, ink, pulp::canvas::TextAlign::center,
+    label("SHAPE", 131.7f, 201.0f, 6.0f, ink, editor_canvas::TextAlign::center,
           700);
     label("MIX / MOTION", 100.3465f, 217.0f, 3.2f, accent,
-          pulp::canvas::TextAlign::center, 700);
+          editor_canvas::TextAlign::center, 700);
     label("PARAMETER CONTROLS", 100.3465f, 245.0f, 3.0f, muted);
     label("48 KHZ  •  MONO VOICE  •  MIDI", 100.3465f, 344.0f, 3.0f, accent);
     label("INDEPENDENT PRODUCT SCAFFOLD", 100.3465f, 353.0f, 2.5f, muted);
   }
 
-  static void paint_attenurandomizer_labels(pulp::canvas::Canvas &canvas,
+  static void paint_attenurandomizer_labels(editor_canvas::Canvas &canvas,
                                              float content_x, float content_y,
                                              float panel_sx, float panel_sy) {
     const float scale = std::min(panel_sx, panel_sy);
-    const auto ink = pulp::canvas::Color::rgba8(32, 35, 38);
+    const auto ink = editor_canvas::Color::rgba8(32, 35, 38);
     // The four trim centers are only 11.45 panel units apart. Use a compact
     // face and tight tracking so the labels remain distinct at the 240 px
     // reference width while still reading clearly in a larger host window.
     canvas.set_font_full("Roboto Mono", 2.1f * scale, 700, 0,
                          0.20f * scale);
-    canvas.set_text_align(pulp::canvas::TextAlign::center);
+    canvas.set_text_align(editor_canvas::TextAlign::center);
     canvas.set_fill_color(ink);
     // Baseline y=29 leaves a small gap below each dotted guide while keeping
     // the text above the reclaimed source/menu strip.
@@ -1931,6 +1976,75 @@ private:
       canvas.fill_text(name, content_x + x * panel_sx,
                        content_y + (128.5f - 29.0f) * panel_sy);
     }
+  }
+
+  void advance_display_modulation() {
+    processor_.advance_display_modulation(
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+  }
+
+#if defined(BEADSY_VELLUM_EDITOR)
+  using ParameterListener = ::vellum::value::Subscription;
+
+  ::vellum::value::ParamHandle param_handle(pulp::state::ParamID id) const {
+    return env_.params.resolve(std::to_string(id));
+  }
+#else
+  using ParameterListener = pulp::state::ListenerToken;
+#endif
+
+  float parameter_value(pulp::state::ParamID id) const {
+#if defined(BEADSY_VELLUM_EDITOR)
+    const auto handle = param_handle(id);
+    return static_cast<float>(env_.params.plain(handle, env_.params.normalized(handle)));
+#else
+    return store_.get_value(id);
+#endif
+  }
+
+  void set_parameter(pulp::state::ParamID id, float value) {
+#if defined(BEADSY_VELLUM_EDITOR)
+    const auto handle = param_handle(id);
+    env_.params.set_normalized(handle, env_.params.normalized_from_plain(handle, value));
+#else
+    store_.set_value(id, value);
+#endif
+  }
+
+  void begin_parameter(pulp::state::ParamID id) {
+#if defined(BEADSY_VELLUM_EDITOR)
+    env_.params.begin(param_handle(id));
+#else
+    store_.begin_gesture(id);
+#endif
+  }
+
+  void end_parameter(pulp::state::ParamID id) {
+#if defined(BEADSY_VELLUM_EDITOR)
+    env_.params.end(param_handle(id));
+#else
+    store_.end_gesture(id);
+#endif
+  }
+
+  ParameterListener watch_parameter(pulp::state::ParamID id,
+                                    std::function<void(float)> on_change) {
+#if defined(BEADSY_VELLUM_EDITOR)
+    const auto handle = param_handle(id);
+    return ::vellum::value::watch(env_.params, handle,
+        [this, handle, fn = std::move(on_change)](double normalized) {
+          fn(static_cast<float>(env_.params.plain(handle, normalized)));
+        });
+#else
+    return store_.add_listener(
+        [id, fn = std::move(on_change)](pulp::state::ParamID changed, float value) {
+          if (id == changed)
+            fn(value);
+        },
+        pulp::state::ListenerThread::Main,
+        pulp::state::ListenerRestoreBehavior::Reconcile);
+#endif
   }
 
   void build_controls() {
@@ -1962,11 +2076,11 @@ private:
       // so a click on the cap edge still begins the normal Knob gesture.
       raw->set_hit_slop(std::max(1.0f, diameter * 0.10f));
       if (std::string_view(p.name) == "Feedback")
-        raw->set_accent(pulp::canvas::Color::rgba8(24, 165, 175));
+        raw->set_accent(editor_canvas::Color::rgba8(24, 165, 175));
       else if (std::string_view(p.name) == "Dry Wet")
-        raw->set_accent(pulp::canvas::Color::rgba8(234, 166, 27));
+        raw->set_accent(editor_canvas::Color::rgba8(234, 166, 27));
       else if (std::string_view(p.name) == "Reverb")
-        raw->set_accent(pulp::canvas::Color::rgba8(211, 59, 97));
+        raw->set_accent(editor_canvas::Color::rgba8(211, 59, 97));
       raw->set_z_index(10);
       if (p.id != 0) {
         raw->set_modulation_indicator(
@@ -1979,7 +2093,7 @@ private:
               const auto second = processor_.lfo(id, 1);
               return first.enabled ? first.phase : second.phase;
             });
-        raw->on_context_menu = [this, raw, id = p.id](pulp::view::Point position) {
+        raw->on_context_menu = [this, raw, id = p.id](editor_view::Point position) {
           // PanelKnob receives the secondary-click point in its own local
           // coordinates. The shared menu factory expects an editor-local
           // anchor, so translate through the knob's authored bounds before
@@ -2001,15 +2115,20 @@ private:
                               " (Provisional control mapping)");
       }
       add_child(std::move(knob));
-      if (p.id != 0)
-        bindings_.push_back(pulp::view::bind_parameter(*raw, store_, p.id));
+      if (p.id != 0) {
+#if defined(BEADSY_VELLUM_EDITOR)
+        bindings_.push_back(editor_view::bind_parameter(*raw, env_.params, param_handle(p.id)));
+#else
+        bindings_.push_back(editor_view::bind_parameter(*raw, store_, p.id));
+#endif
+      }
       controls_.push_back({p.id, raw, p.x, p.y, p.r});
     }
 
     // Some AUv2 bridges deliver a secondary click to the editor container
     // instead of the child knob. Resolve that editor-local point against the
     // same native control bounds and open the identical Spectr-style menu.
-    on_context_menu = [this](pulp::view::Point position) {
+    on_context_menu = [this](editor_view::Point position) {
       for (const auto &control : controls_) {
         if (!control.knob || control.id == 0)
           continue;
@@ -2020,7 +2139,7 @@ private:
           return;
         }
       }
-      const auto button_target = [&](pulp::view::View *button,
+      const auto button_target = [&](editor_view::View *button,
                                      pulp::state::ParamID id) {
         if (!button)
           return false;
@@ -2050,7 +2169,7 @@ private:
     });
     seed_mode_->set_z_index(100);
     seed_mode_->set_mode(
-        static_cast<int>(std::lround(store_.get_value(kSeedMode))));
+        static_cast<int>(std::lround(parameter_value(kSeedMode))));
     seed_mode_->set_on_press([this] {
       // A mouse is not a panel button: a tap toggles the latch like FREEZE
       // (the module needs a four-second hold for that), while a longer hold
@@ -2058,34 +2177,30 @@ private:
       // state from before the press comes back.
       seed_ignore_release_ = false;
       seed_latched_before_press_ =
-          std::lround(store_.get_value(kSeedMode)) == 2;
-      store_.begin_gesture(kSeedMode);
-      store_.set_value(kSeedMode, 1.0f);
+          std::lround(parameter_value(kSeedMode)) == 2;
+      begin_parameter(kSeedMode);
+      set_parameter(kSeedMode, 1.0f);
     });
     seed_mode_->set_on_release([this](double held_seconds) {
       if (!seed_ignore_release_) {
         const bool tap = held_seconds < SeedModeControl::kTapSeconds;
         const bool latched = tap ? !seed_latched_before_press_ : seed_latched_before_press_;
-        store_.set_value(kSeedMode, latched ? 2.0f : 0.0f);
+        set_parameter(kSeedMode, latched ? 2.0f : 0.0f);
       }
-      store_.end_gesture(kSeedMode);
+      end_parameter(kSeedMode);
     });
-    seed_mode_->set_on_context_menu([this](pulp::view::Point position) {
+    seed_mode_->set_on_context_menu([this](editor_view::Point position) {
       const auto b = seed_mode_->bounds();
       show_modulation_context_menu(kSeedMode, {b.x + position.x, b.y + position.y});
     });
-    seed_mode_->on_context_menu = [this](pulp::view::Point position) {
+    seed_mode_->on_context_menu = [this](editor_view::Point position) {
       const auto b = seed_mode_->bounds();
       show_modulation_context_menu(kSeedMode, {b.x + position.x, b.y + position.y});
     };
-    seed_mode_binding_ = store_.add_listener(
-        [this](pulp::state::ParamID changed, float) {
-          if (changed == kSeedMode && seed_mode_)
-            seed_mode_->set_mode(
-                static_cast<int>(std::lround(store_.get_value(kSeedMode))));
-        },
-        pulp::state::ListenerThread::Main,
-        pulp::state::ListenerRestoreBehavior::Reconcile);
+    seed_mode_binding_ = watch_parameter(kSeedMode, [this](float) {
+      if (seed_mode_)
+        seed_mode_->set_mode(static_cast<int>(std::lround(parameter_value(kSeedMode))));
+    });
     add_child(std::move(seed));
 
     auto freeze = std::make_unique<FreezeControl>();
@@ -2094,34 +2209,31 @@ private:
       return effective_display_value(kFreeze);
     });
     freeze_mode_->set_z_index(100);
-    freeze_mode_->set_pressed(store_.get_value(kFreeze) >= 0.5f);
+    freeze_mode_->set_pressed(parameter_value(kFreeze) >= 0.5f);
     freeze_mode_->set_on_press([this] {
       // FREEZE while SEED is held latches SEED and does not freeze, as on
       // the hardware; the SEED release then only ends the gesture.
       if (seed_mode_ && seed_mode_->held()) {
-        store_.set_value(kSeedMode, 2.0f);
+        set_parameter(kSeedMode, 2.0f);
         seed_ignore_release_ = true;
         return;
       }
-      store_.begin_gesture(kFreeze);
-      store_.set_value(kFreeze, store_.get_value(kFreeze) >= 0.5f ? 0.0f : 1.0f);
-      store_.end_gesture(kFreeze);
+      begin_parameter(kFreeze);
+      set_parameter(kFreeze, parameter_value(kFreeze) >= 0.5f ? 0.0f : 1.0f);
+      end_parameter(kFreeze);
     });
-    freeze_mode_->set_on_context_menu([this](pulp::view::Point position) {
+    freeze_mode_->set_on_context_menu([this](editor_view::Point position) {
       const auto b = freeze_mode_->bounds();
       show_modulation_context_menu(kFreeze, {b.x + position.x, b.y + position.y});
     });
-    freeze_mode_->on_context_menu = [this](pulp::view::Point position) {
+    freeze_mode_->on_context_menu = [this](editor_view::Point position) {
       const auto b = freeze_mode_->bounds();
       show_modulation_context_menu(kFreeze, {b.x + position.x, b.y + position.y});
     };
-    freeze_mode_binding_ = store_.add_listener(
-        [this](pulp::state::ParamID changed, float value) {
-          if (changed == kFreeze && freeze_mode_)
-            freeze_mode_->set_pressed(value >= 0.5f);
-        },
-        pulp::state::ListenerThread::Main,
-        pulp::state::ListenerRestoreBehavior::Reconcile);
+    freeze_mode_binding_ = watch_parameter(kFreeze, [this](float value) {
+      if (freeze_mode_)
+        freeze_mode_->set_pressed(value >= 0.5f);
+    });
     add_child(std::move(freeze));
 
     auto push = std::make_unique<PushButtonControl>();
@@ -2131,41 +2243,36 @@ private:
     });
     push_button_->set_z_index(100);
     push_button_->set_quality(static_cast<int>(std::lround(
-        store_.get_value(kQuality))));
+        parameter_value(kQuality))));
     push_button_->set_on_press([this] {
       const int next =
-          (std::clamp(static_cast<int>(std::lround(store_.get_value(kQuality))),
+          (std::clamp(static_cast<int>(std::lround(parameter_value(kQuality))),
                       0, 3) + 1) % 4;
-      store_.begin_gesture(kQuality);
-      store_.set_value(kQuality, static_cast<float>(next));
-      store_.end_gesture(kQuality);
+      begin_parameter(kQuality);
+      set_parameter(kQuality, static_cast<float>(next));
+      end_parameter(kQuality);
     });
-    push_button_->set_on_context_menu([this](pulp::view::Point position) {
+    push_button_->set_on_context_menu([this](editor_view::Point position) {
       const auto b = push_button_->bounds();
       show_modulation_context_menu(kQuality, {b.x + position.x, b.y + position.y});
     });
-    push_button_->on_context_menu = [this](pulp::view::Point position) {
+    push_button_->on_context_menu = [this](editor_view::Point position) {
       const auto b = push_button_->bounds();
       show_modulation_context_menu(kQuality, {b.x + position.x, b.y + position.y});
     };
-    quality_binding_ = store_.add_listener(
-        [this](pulp::state::ParamID changed, float value) {
-          if (changed == kQuality) {
-            const int quality = static_cast<int>(std::lround(value));
-            if (push_button_)
-              push_button_->set_quality(quality);
-            if (center_indicators_)
-              center_indicators_->set_quality(quality);
-          }
-        },
-        pulp::state::ListenerThread::Main,
-        pulp::state::ListenerRestoreBehavior::Reconcile);
+    quality_binding_ = watch_parameter(kQuality, [this](float value) {
+      const int quality = static_cast<int>(std::lround(value));
+      if (push_button_)
+        push_button_->set_quality(quality);
+      if (center_indicators_)
+        center_indicators_->set_quality(quality);
+    });
     add_child(std::move(push));
 
     auto assign = std::make_unique<AssignButtonControl>();
     assign_button_ = assign.get();
     assign_button_->set_z_index(100);
-    assign_button_->set_on_context_menu([this](pulp::view::Point position) {
+    assign_button_->set_on_context_menu([this](editor_view::Point position) {
       const auto b = assign_button_->bounds();
       show_modulation_context_menu(kFeedback, {b.x + position.x, b.y + position.y});
     });
@@ -2174,17 +2281,17 @@ private:
     auto indicators = std::make_unique<CenterIndicators>();
     center_indicators_ = indicators.get();
     center_indicators_->set_quality(
-        static_cast<int>(std::lround(store_.get_value(kQuality))));
+        static_cast<int>(std::lround(parameter_value(kQuality))));
     add_child(std::move(indicators));
 
     auto mode = std::make_unique<ModeControl>();
     source_mode_ = mode.get();
     source_mode_->set_mode(
-        static_cast<int>(std::lround(store_.get_value(kMode))));
+        static_cast<int>(std::lround(parameter_value(kMode))));
     source_mode_->set_on_mode_change([this](int next) {
-      store_.begin_gesture(kMode);
-      store_.set_value(kMode, static_cast<float>(next));
-      store_.end_gesture(kMode);
+      begin_parameter(kMode);
+      set_parameter(kMode, static_cast<float>(next));
+      end_parameter(kMode);
 #if defined(BEADSY_HAS_AUDIO_ROUTE_CATALOG)
       if (route_picker_left_)
         route_picker_left_->set_source_mode(next);
@@ -2194,27 +2301,23 @@ private:
       // Keep the legacy bus parameter coherent for old hosts/states;
       // the visible source control is now the single semantic choice.
       if (next >= 1) {
-        store_.begin_gesture(kInputSource);
-        store_.set_value(kInputSource, next == 2 ? 1.0f : 0.0f);
-        store_.end_gesture(kInputSource);
+        begin_parameter(kInputSource);
+        set_parameter(kInputSource, next == 2 ? 1.0f : 0.0f);
+        end_parameter(kInputSource);
       }
     });
-    source_mode_binding_ = store_.add_listener(
-        [this](pulp::state::ParamID changed, float value) {
-          if (changed == kMode && source_mode_) {
-            source_mode_->set_mode(static_cast<int>(std::lround(value)));
+    source_mode_binding_ = watch_parameter(kMode, [this](float value) {
+      if (!source_mode_)
+        return;
+      const auto mode = static_cast<int>(std::lround(value));
+      source_mode_->set_mode(mode);
 #if defined(BEADSY_HAS_AUDIO_ROUTE_CATALOG)
-            if (route_picker_left_)
-              route_picker_left_->set_source_mode(
-                  static_cast<int>(std::lround(value)));
-            if (route_picker_right_)
-              route_picker_right_->set_source_mode(
-                  static_cast<int>(std::lround(value)));
+      if (route_picker_left_)
+        route_picker_left_->set_source_mode(mode);
+      if (route_picker_right_)
+        route_picker_right_->set_source_mode(mode);
 #endif
-          }
-        },
-        pulp::state::ListenerThread::Main,
-        pulp::state::ListenerRestoreBehavior::Reconcile);
+    });
     add_child(std::move(mode));
 #if !defined(BEADSY_SHOW_ROUTING_CONTROLS)
     // Source selection remains a real, automatable parameter for hosts, but
@@ -2233,7 +2336,7 @@ private:
           processor_.set_route_identity(channel, stable_id);
         });
     route_picker_left_->set_source_mode(
-        static_cast<int>(std::lround(store_.get_value(kMode))));
+        static_cast<int>(std::lround(parameter_value(kMode))));
     add_child(std::move(route_picker_left));
     auto route_picker_right = std::make_unique<AudioRoutePicker>(0, 1);
     route_picker_right_ = route_picker_right.get();
@@ -2243,13 +2346,13 @@ private:
           processor_.set_route_identity(channel, stable_id);
         });
     route_picker_right_->set_source_mode(
-        static_cast<int>(std::lround(store_.get_value(kMode))));
+        static_cast<int>(std::lround(parameter_value(kMode))));
     add_child(std::move(route_picker_right));
 #else
     // Older SDKs can still show the complete stereo routing UX while the
     // host catalog capability is being adopted. These selectors are upgraded
     // in-place by the catalog-backed implementation when available.
-    auto route_left = std::make_unique<pulp::view::ComboBox>();
+    auto route_left = std::make_unique<editor_view::ComboBox>();
     route_picker_left_fallback_ = route_left.get();
     route_picker_left_fallback_->set_id("beadsy-audio-route-left");
     route_picker_left_fallback_->set_access_label("Input L: host routing menu");
@@ -2257,7 +2360,7 @@ private:
     route_picker_left_fallback_->set_selected_silent(0);
     route_picker_left_fallback_->set_visible(false);
     add_child(std::move(route_left));
-    auto route_right = std::make_unique<pulp::view::ComboBox>();
+    auto route_right = std::make_unique<editor_view::ComboBox>();
     route_picker_right_fallback_ = route_right.get();
     route_picker_right_fallback_->set_id("beadsy-audio-route-right");
     route_picker_right_fallback_->set_access_label("Input R: host routing menu");
@@ -2280,14 +2383,18 @@ private:
       source_chip_->label_provider = [this] {
         return std::string(source_chip_label(source_mode()));
       };
-      source_chip_->on_press = [this](pulp::view::Point) {
+      source_chip_->on_press = [this](editor_view::Point) {
         const auto b = source_chip_->bounds();
         show_panel_menu({b.x, b.y});
       };
       add_child(std::move(chip));
     }
 #endif
+#if defined(BEADSY_VELLUM_EDITOR)
+    auto grip = std::make_unique<ResizeGrip>(env_);
+#else
     auto grip = std::make_unique<ResizeGrip>(processor_);
+#endif
     resize_grip_ = grip.get();
     add_child(std::move(grip));
   }
@@ -2314,11 +2421,11 @@ private:
     // root cause of the recurring host-only failure where the panel artwork is
     // upright but native controls collapse at the origin (and then appear
     // missing, flipped, or unresponsive after a resize).
-    const auto place_absolute = [](pulp::view::View *view, float x, float y,
+    const auto place_absolute = [](editor_view::View *view, float x, float y,
                                    float w, float h) {
       if (!view)
         return;
-      view->set_position(pulp::view::View::Position::absolute);
+      view->set_position(editor_view::View::Position::absolute);
       view->set_left(x);
       view->set_top(y);
       view->set_bounds({x, y, w, h});
@@ -2460,26 +2567,29 @@ private:
   };
   Beadsy &processor_;
   pulp::state::StateStore &store_;
-  pulp::canvas::SvgImage panel_;
+#if defined(BEADSY_VELLUM_EDITOR)
+  pulp::vellum::EditorEnv &env_;
+#endif
+  editor_canvas::SvgImage panel_;
   std::vector<Control> controls_;
-  std::vector<pulp::view::ParameterBinding> bindings_;
+  std::vector<editor_view::ParameterBinding> bindings_;
   SeedModeControl *seed_mode_ = nullptr;
   bool seed_ignore_release_ = false;
   bool seed_latched_before_press_ = false;
-  pulp::state::ListenerToken seed_mode_binding_;
+  ParameterListener seed_mode_binding_;
   FreezeControl *freeze_mode_ = nullptr;
-  pulp::state::ListenerToken freeze_mode_binding_;
+  ParameterListener freeze_mode_binding_;
   PushButtonControl *push_button_ = nullptr;
   AssignButtonControl *assign_button_ = nullptr;
-  pulp::state::ListenerToken quality_binding_;
+  ParameterListener quality_binding_;
   CenterIndicators *center_indicators_ = nullptr;
   ModeControl *source_mode_ = nullptr;
 #if defined(BEADSY_HAS_AUDIO_ROUTE_CATALOG)
   AudioRoutePicker *route_picker_left_ = nullptr;
   AudioRoutePicker *route_picker_right_ = nullptr;
 #else
-  pulp::view::ComboBox *route_picker_left_fallback_ = nullptr;
-  pulp::view::ComboBox *route_picker_right_fallback_ = nullptr;
+  editor_view::ComboBox *route_picker_left_fallback_ = nullptr;
+  editor_view::ComboBox *route_picker_right_fallback_ = nullptr;
 #endif
   ResizeGrip *resize_grip_ = nullptr;
 #if defined(BEADSY_LAB_VARIANT)
@@ -2488,7 +2598,7 @@ private:
   HelpPanel *help_panel_ = nullptr;
 #endif
   std::uint64_t diag_paint_count_ = 0;
-  pulp::state::ListenerToken source_mode_binding_;
+  ParameterListener source_mode_binding_;
   std::optional<pulp::state::ParamID> context_target_;
 };
 

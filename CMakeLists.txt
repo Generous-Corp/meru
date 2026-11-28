@@ -4,6 +4,10 @@ project(Beadsy VERSION 1.1.2 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(BEADSY_VELLUM_EDITOR "Host the Meru editor with Vellum" OFF)
+if(BEADSY_VELLUM_EDITOR)
+    find_package(Vellum CONFIG REQUIRED)
+endif()
 find_package(Pulp CONFIG REQUIRED)
 if(APPLE)
     enable_language(OBJCXX)
@@ -215,8 +219,31 @@ if(TARGET Pulp::view)
     catch_discover_tests(Beadsy-modulation-ui-test)
 endif()
 
-pulp_add_plugin(Beadsy
-    FORMATS         VST3 CLAP LV2 AU AUv3 AAX Standalone
+if(BEADSY_VELLUM_EDITOR)
+    if(NOT APPLE OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        message(FATAL_ERROR "BEADSY_VELLUM_EDITOR currently supports macOS")
+    endif()
+    if(NOT COMMAND pulp_add_vellum_editor_package)
+        include("${Pulp_DIR}/PulpVellumEditorPackage.cmake" OPTIONAL)
+    endif()
+    if(NOT COMMAND pulp_add_vellum_editor_package OR NOT TARGET Pulp::vellum)
+        message(FATAL_ERROR "BEADSY_VELLUM_EDITOR requires Pulp's installed Vellum integration")
+    endif()
+    pulp_add_vellum_editor_package(BeadsyVellumEditor
+        VIEW_HEADER beadsy_editor.hpp
+        VIEW_TYPE beadsy::BeadsyEditor
+        SOURCES beadsy_ui_proof.mm)
+    target_link_libraries(BeadsyVellumEditor INTERFACE beadsy_beads_dsp "-framework AppKit")
+    target_compile_definitions(BeadsyVellumEditor INTERFACE
+        BEADSY_VELLUM_EDITOR=1 BEADSY_LAB_VARIANT=1 BEADSY_UI_PROOF=1)
+
+    add_executable(Beadsy-vellum-editor-test test_beadsy_vellum_editor.mm)
+    target_link_libraries(Beadsy-vellum-editor-test PRIVATE
+        BeadsyVellumEditor Catch2::Catch2WithMain "-framework Metal")
+    catch_discover_tests(Beadsy-vellum-editor-test PROPERTIES SKIP_RETURN_CODE 4)
+endif()
+
+set(_beadsy_metadata
     PLUGIN_NAME     "Meru"
     BUNDLE_ID       "com.independent-audio.beadsy"
     MANUFACTURER    "Independent Audio"
@@ -229,10 +256,24 @@ pulp_add_plugin(Beadsy
     AAX_NATIVE_CODE "Bead"
 )
 
+if(NOT BEADSY_VELLUM_EDITOR)
+    pulp_add_plugin(Beadsy
+        FORMATS VST3 CLAP LV2 AU AUv3 AAX Standalone
+        ${_beadsy_metadata})
+else()
+    # AUv3 cannot stage the editor dylibs. LV2 and AAX have no contract editor.
+    pulp_add_plugin(Beadsy
+        FORMATS VST3 CLAP AU Standalone
+        UI BeadsyVellumEditor
+        ${_beadsy_metadata})
+endif()
+
 foreach(_fmt IN ITEMS VST3 CLAP LV2 AU AUv3 AAX Standalone)
     if(TARGET Beadsy_${_fmt})
         target_link_libraries(Beadsy_${_fmt} PRIVATE beadsy_beads_dsp)
-        if(TARGET Pulp::view)
+        if(BEADSY_VELLUM_EDITOR AND _fmt STREQUAL "Standalone")
+            target_sources(Beadsy_${_fmt} PRIVATE beadsy_standalone_first_mouse.mm)
+        elseif(NOT BEADSY_VELLUM_EDITOR AND TARGET Pulp::view)
             target_link_libraries(Beadsy_${_fmt} PRIVATE Pulp::view)
             if(TARGET Pulp::host)
                 target_link_libraries(Beadsy_${_fmt} PRIVATE Pulp::host)
@@ -267,8 +308,7 @@ endforeach()
 # (aumu) for MIDI workflows; this companion is an AU MusicEffect (aumf) so a
 # DAW can feed the track/bus audio into the same Beads processor.  Host project
 # source menus remain host-owned; this target simply exposes a real input bus.
-pulp_add_plugin(BeadsyFX
-    FORMATS         VST3 CLAP AU AUv3 Standalone
+set(_beadsy_fx_metadata
     PLUGIN_NAME     "Meru FX"
     BUNDLE_ID       "com.independent-audio.beadsy-fx"
     MANUFACTURER    "Independent Audio"
@@ -279,11 +319,24 @@ pulp_add_plugin(BeadsyFX
     MANUFACTURER_CODE "Inde"
 )
 
+if(NOT BEADSY_VELLUM_EDITOR)
+    pulp_add_plugin(BeadsyFX
+        FORMATS VST3 CLAP AU AUv3 Standalone
+        ${_beadsy_fx_metadata})
+else()
+    pulp_add_plugin(BeadsyFX
+        FORMATS VST3 CLAP AU Standalone
+        UI BeadsyVellumEditor
+        ${_beadsy_fx_metadata})
+endif()
+
 foreach(_fmt IN ITEMS VST3 CLAP AU AUv3 Standalone)
     if(TARGET BeadsyFX_${_fmt})
         target_compile_definitions(BeadsyFX_${_fmt} PRIVATE BEADSY_EFFECT_VARIANT=1 BEADSY_LAB_VARIANT=1)
         target_link_libraries(BeadsyFX_${_fmt} PRIVATE beadsy_beads_dsp)
-        if(TARGET Pulp::view)
+        if(BEADSY_VELLUM_EDITOR AND _fmt STREQUAL "Standalone")
+            target_sources(BeadsyFX_${_fmt} PRIVATE beadsy_standalone_first_mouse.mm)
+        elseif(NOT BEADSY_VELLUM_EDITOR AND TARGET Pulp::view)
             target_link_libraries(BeadsyFX_${_fmt} PRIVATE Pulp::view)
             if(TARGET Pulp::host)
                 target_link_libraries(BeadsyFX_${_fmt} PRIVATE Pulp::host)

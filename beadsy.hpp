@@ -256,8 +256,7 @@ public:
     return id == kFreeze || id == kSeedMode || id == kQuality;
   }
 
-#if defined(BEADSY_NATIVE_EDITOR) && !defined(PULP_HEADLESS)
-  pulp::format::ViewSize view_size() const override {
+  static constexpr pulp::format::ViewSize panel_view_size() {
     // Every host locks interactive resize to the editor's ratio and the
     // default window is the width-locked panel at 350 px wide, cropped just
     // below the trim labels. The default is also the minimum so the
@@ -267,6 +266,8 @@ public:
     return {kDefaultWidth, kDefaultHeight, kDefaultWidth, kDefaultHeight,
             kDefaultWidth * 2, kDefaultHeight * 2, kPanelAspectRatio};
   }
+#if defined(BEADSY_NATIVE_EDITOR) && !defined(PULP_HEADLESS)
+  pulp::format::ViewSize view_size() const override { return panel_view_size(); }
   std::unique_ptr<pulp::view::View> create_view() override;
 #endif
 

@@ -1,10 +1,6 @@
 #pragma once
 
-#include <pulp/view/context_menu.hpp>
-#if __has_include(<pulp/view/native_context_menu.hpp>)
-#include <pulp/view/native_context_menu.hpp>
-#define BEADSY_HAS_NATIVE_MENUS 1
-#endif
+#include "beadsy_editor_api.hpp"
 #include <cmath>
 
 namespace beadsy::detail {
@@ -12,22 +8,22 @@ namespace beadsy::detail {
 // Product presentation on the ordinary SDK menu: retain its focus, keyboard,
 // scrolling and capture behavior while drawing accurate waveform cells and
 // normalising the legacy gesture phases for slider rows.
-class ModulationContextMenu final : public pulp::view::ContextMenu {
+class ModulationContextMenu final : public editor_view::ContextMenu {
 public:
   static ModulationContextMenu *show(
-      pulp::view::View *root, pulp::view::Point position, std::vector<Item> items,
+      editor_view::View *root, editor_view::Point position, std::vector<Item> items,
       std::function<void(std::optional<int>)> close) {
 #if defined(BEADSY_HAS_NATIVE_MENUS)
     // Trial: the SDK's native presentation (BEADSY_NATIVE_MENUS=1 sets the
     // process default). The platform menu owns its lifetime, so there is no
     // view to return; callers null-check.
     if (ContextMenu::resolve_presentation(std::nullopt) == ContextMenu::Presentation::native &&
-        pulp::view::show_native_context_menu(*root, position, std::move(items), std::move(close)))
+        editor_view::show_native_context_menu(*root, position, std::move(items), std::move(close)))
       return nullptr;
 #endif
     for (std::size_t i = root->child_count(); i > 0; --i) {
       if (auto *old = dynamic_cast<ContextMenu *>(root->child_at(i - 1))) {
-        old->on_key_event({.key = pulp::view::KeyCode::escape, .is_down = true});
+        old->on_key_event({.key = editor_view::KeyCode::escape, .is_down = true});
         break;
       }
     }
@@ -58,7 +54,7 @@ public:
     return raw;
   }
 
-  void paint(pulp::canvas::Canvas &canvas) override {
+  void paint(editor_canvas::Canvas &canvas) override {
     ContextMenu::paint(canvas);
     const auto geometry = layout();
     canvas.save();
@@ -70,13 +66,13 @@ public:
       for (std::size_t shape = 0; shape < 4; ++shape) {
         const auto cell = waveform_cell(geometry.rows[row], shape);
         canvas.set_fill_color(shape == item.choice_index
-                                 ? pulp::canvas::Color::rgba8(82, 112, 142)
-                                 : pulp::canvas::Color::rgba8(38, 38, 44));
+                                 ? editor_canvas::Color::rgba8(82, 112, 142)
+                                 : editor_canvas::Color::rgba8(38, 38, 44));
         canvas.fill_rounded_rect(cell.x, cell.y, cell.width, cell.height, 2);
-        canvas.set_stroke_color(pulp::canvas::Color::rgba8(232, 235, 228));
+        canvas.set_stroke_color(editor_canvas::Color::rgba8(232, 235, 228));
         canvas.set_line_width(1.1f);
         const auto point = [&](float x, float y) {
-          return pulp::view::Point{cell.x + 3 + x * (cell.width - 6),
+          return editor_view::Point{cell.x + 3 + x * (cell.width - 6),
                                     cell.y + 3 + y * (cell.height - 6)};
         };
         const auto line = [&](float x1, float y1, float x2, float y2) {
@@ -108,18 +104,18 @@ public:
     canvas.restore();
   }
 
-  void on_mouse_event(const pulp::view::MouseEvent &event) override {
+  void on_mouse_event(const editor_view::MouseEvent &event) override {
     const auto geometry = layout();
     auto mapped = event;
     if (slider_row_ >= 0 && !event.is_wheel) {
       // Honor the SDK's legacy gesture convention as well as native explicit
       // phases. A release carrying movement metadata must still end capture.
-      if (event.phase == pulp::view::MousePhase::automatic)
+      if (event.phase == editor_view::MousePhase::automatic)
         mapped.phase = event.is_down && !event.has_movement_delta
-                           ? pulp::view::MousePhase::release
-                           : pulp::view::MousePhase::drag;
-      if (event.is_cancelled || mapped.phase == pulp::view::MousePhase::release) {
-        mapped.phase = pulp::view::MousePhase::release;
+                           ? editor_view::MousePhase::release
+                           : editor_view::MousePhase::drag;
+      if (event.is_cancelled || mapped.phase == editor_view::MousePhase::release) {
+        mapped.phase = editor_view::MousePhase::release;
         mapped.is_down = false;
         mapped.has_movement_delta = false;
         slider_row_ = -1;
@@ -127,7 +123,7 @@ public:
         return;
       }
       if (event.has_movement_delta)
-        mapped.phase = pulp::view::MousePhase::drag;
+        mapped.phase = editor_view::MousePhase::drag;
     }
     const bool inside = event.position.x >= geometry.box.x &&
                         event.position.x <= geometry.box.x + geometry.box.width &&
@@ -159,12 +155,12 @@ public:
     }
     // The SDK maps the pointer against the track it paints (a value label
     // shortens both), so the position passes through unchanged.
-    if (event.phase == pulp::view::MousePhase::release)
+    if (event.phase == editor_view::MousePhase::release)
       slider_row_ = -1;
     ContextMenu::on_mouse_event(mapped);
   }
 
-  static pulp::view::Rect waveform_cell(pulp::view::Rect row, std::size_t shape) {
+  static editor_view::Rect waveform_cell(editor_view::Rect row, std::size_t shape) {
     return {row.x + 90.0f + static_cast<float>(shape) * 21.0f,
              row.y + (row.height - 18.0f) * 0.5f, 18.0f, 18.0f};
   }
