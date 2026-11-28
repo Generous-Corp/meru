@@ -42,6 +42,13 @@ ctest --test-dir build
 
 Bundles land in `build/` (`Meru.app`, `AU/`, `VST3/`, `CLAP/`).
 
+To run the macOS CI build and tests locally on Apple silicon, use Xcode 26
+and pass an extracted Pulp SDK to the same script the workflow uses.
+
+```sh
+bash scripts/build_and_test_macos.sh /path/to/pulp-sdk build/ci
+```
+
 ## License and credits
 
 Meru's own source is MIT licensed ([LICENSE](LICENSE)). The adapted Beads

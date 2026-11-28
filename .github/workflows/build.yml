@@ -1,0 +1,46 @@
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      # The released libraries link against the macOS 26 SDK.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      PULP_SDK_TAG: v1.214.0
+      PULP_SDK_SHA256: 1b3a37d49aa2ce1e8ba4ae5828549aa6f04756bb680e02aef82ef957773ae391
+      CMAKE_BUILD_PARALLEL_LEVEL: 3
+      CTEST_PARALLEL_LEVEL: 3
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Check Xcode
+        run: xcodebuild -version
+
+      - name: Download and verify the Pulp SDK
+        shell: bash
+        run: |
+          asset=pulp-sdk-darwin-arm64.tar.gz
+          archive="$RUNNER_TEMP/$asset"
+          curl --fail --silent --show-error --location --retry 3 --output "$archive" \
+            "https://github.com/Generous-Corp/pulp/releases/download/$PULP_SDK_TAG/$asset"
+          printf '%s  %s\n' "$PULP_SDK_SHA256" "$archive" | shasum -a 256 --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+
+      - name: Build and test Meru
+        run: bash scripts/build_and_test_macos.sh "$RUNNER_TEMP/pulp-sdk" "$RUNNER_TEMP/meru-build"
